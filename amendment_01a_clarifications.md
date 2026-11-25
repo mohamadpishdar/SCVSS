@@ -40,3 +40,8 @@ Amendment 01a: clarifications to Amendment 01 (control-B), decided 2026-11-25 be
 3. F01578 keeps a neighbouring finding's status line ("Verified. Fixed in"); it joins the sensitivity analysis with CB-100, F00211 and F01554.
 4. Answers for CB-222 and F04321 are kept in the answer files and not deleted.
 5. F04885, F03039 and F04073 (Trail of Bits windows without the finding body, listed as known limitations before the freeze) are excluded from the primary Rule 2 analyses for the same reason as F04321 and included in a sensitivity analysis. F02179 (one character per line, full text present) stays in the primary analyses and joins the sensitivity set.
+
+## 01g (2026-11-25): pilot records, decided before any Rule 2 analysis or contamination comparison
+1. The 10 pilot findings (F01554, F02218, F02478, F03029, F03236, F03530, F03779, F04549, F04736, F04942) were coded by R1 on 2026-10-29 after the freeze, with the frozen model, prompt and settings; their pilot records are the R1 answers used in the analysis.
+2. Summary figures and three quotes from these records were viewed in the pilot check (pilot_check.txt); no rule, prompt or codebook was changed afterwards.
+3. A sensitivity analysis repeats Rule 2 without these 10 findings.
