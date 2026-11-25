@@ -23,3 +23,8 @@ Amendment 01a: clarifications to Amendment 01 (control-B), decided 2026-11-25 be
 2. Findings judged "related" (CB-038, CB-101, CB-222, CB-227, CB-252) stay in the primary test; a sensitivity analysis repeats the test without them.
 3. No other control-B finding is excluded on content grounds; CB-233 is kept under the frozen extraction rule and noted in the report.
 4. The primary contamination test therefore uses 22 control-B findings.
+
+## 01d (2026-11-25): redaction of control-B, decided from the automatic leak checks (controlB_leak_scan.txt) before the visual check and before any rater run or Rule 2 or contamination result was viewed
+1. No manual edits. All 23 control-B texts stay as produced by the frozen redaction pipeline (rule2.redact). CB-100's residual status text ("Fixed (commit ...)") stays, consistent with F00211 in the main sample; a sensitivity analysis excludes CB-100 and F00211.
+2. Numbered QuillAudits titles (CB-132, CB-134, CB-144, CB-145) stay, as in the original control group (FR-339, FR-340); firm is already a covariate.
+3. CB-190, CB-212, CB-213, CB-233 and CB-134 stay as redacted by the frozen pipeline.

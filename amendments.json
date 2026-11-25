@@ -65,5 +65,23 @@
     "sha256": "5346fcf602e98b4dffab8433474164d0f4e35939bede76d347aaf91acc4c6053",
     "timestamp": "2026-11-25T17:51:27+01:00",
     "note": "adds section 01c (handling of prior-report overlap); supersedes entry 7"
+  },
+  {
+    "file": "(registration)",
+    "sha256": "",
+    "timestamp": "2026-11-25T18:02:58+01:00",
+    "note": "external registration (commit e1bc5b6). Verified after LF normalisation: amendment_01_control_expansion.md = entry 2; amendments.json = entries 1-11; controlB_sample.csv = entry 9 (LF sha256 9cbe5d8c59eeb8ce6...); controlB_prior_overlap.csv = entry 10 (LF sha256 2300044beaeb92fd...). amendment_01a_clarifications.md on GitHub is still entry 7 (without 01c); to be re-uploaded.",
+    "registration": "https://github.com/mohamadpishdar/SCVSS/commit/e1bc5b6404c74cde50a44fcfacedeea1a8e30655",
+    "lf_sha256": {
+      "controlB_sample.csv": "9cbe5d8c59eeb8ce0805415f83647ca5d60763d014cde87dde6724e8af1533bf",
+      "controlB_prior_overlap.csv": "2300044beaeb92fdba020396ca013ce29af03bc61563f11da5a75a9cc9b1fa85"
+    }
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "67a25223d1f8aaf61655dfa3b4eb597c73550fd57dea476cd515e5bbe2576e05",
+    "lf_sha256": "67a25223d1f8aaf61655dfa3b4eb597c73550fd57dea476cd515e5bbe2576e05",
+    "timestamp": "2026-11-25T18:02:58+01:00",
+    "note": "adds section 01d (redaction decisions for control-B); supersedes entry 11"
   }
 ]
