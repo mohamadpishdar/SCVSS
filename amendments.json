@@ -189,9 +189,15 @@
         "sha256": "b0516a0f0ce8c64c50b96d52338f2717b934acf43b21e79132895c606edb7ffd",
         "lf_sha256": "ae12f7e2b42fe16bbd5d2b4ba356c967935440dffe516f0646029f68388ac1ad",
         "bytes": 1603
+      },
+      {
+        "file": "work/rule2/probe_run.log",
+        "sha256": "c24a5015c623cf63fc96aeeeb19b6e5325a4b01204dbc3b69a71c410f193c910",
+        "lf_sha256": "63545dd6a6dc6dd009c186398829051da23bc721eb4753106f6f9a043230eb6c",
+        "bytes": 14621
       }
     ],
     "timestamp": "2026-11-25T18:35:35+01:00",
-    "note": "extract run logs (main sample incl. pilot and retries; control-B); registered 2026-11-25, before any Rule 2 analysis, contamination comparison or probe result was viewed"
+    "note": "extract run logs (main sample incl. pilot and retries; control-B) and the probe run log; registered 2026-11-25, before any Rule 2 analysis, contamination comparison or probe result was viewed"
   }
 ]
