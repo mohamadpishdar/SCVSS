@@ -28,3 +28,8 @@ Amendment 01a: clarifications to Amendment 01 (control-B), decided 2026-11-25 be
 1. No manual edits. All 23 control-B texts stay as produced by the frozen redaction pipeline (rule2.redact). CB-100's residual status text ("Fixed (commit ...)") stays, consistent with F00211 in the main sample; a sensitivity analysis excludes CB-100 and F00211.
 2. Numbered QuillAudits titles (CB-132, CB-134, CB-144, CB-145) stay, as in the original control group (FR-339, FR-340); firm is already a covariate.
 3. CB-190, CB-212, CB-213, CB-233 and CB-134 stay as redacted by the frozen pipeline.
+
+## 01e (2026-11-25): residual rating sentences, decided from rating_sentence_scan.txt after the visual check and before any rater run or Rule 2 or contamination result was viewed
+1. Rule R-01e removes a capitalised severity word (Critical, High, Medium, Low, Informational) used as a rating in forms A-C of rating_sentence_scan.py: (A) together with a preceding "hence/thus/therefore/so/making it|this"; (B) a sentence consisting only of the word, removed whole; (C) the word in "<Sev> for ...", leaving the rest of the clause. No other text is changed.
+2. R-01e applies to all three groups. In the main sample and the original control it matches nothing, so the frozen redacted.jsonl is unchanged; it changes control-B texts CB-144, CB-145, CB-190 and CB-213 only.
+3. F01554 (main sample, lowercase "high") is not matched by R-01e and stays; it is added to the sensitivity analysis that excludes CB-100 and F00211.

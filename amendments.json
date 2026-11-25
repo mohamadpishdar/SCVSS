@@ -83,5 +83,19 @@
     "lf_sha256": "67a25223d1f8aaf61655dfa3b4eb597c73550fd57dea476cd515e5bbe2576e05",
     "timestamp": "2026-11-25T18:02:58+01:00",
     "note": "adds section 01d (redaction decisions for control-B); supersedes entry 11"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "d4d08d2722e336f5179ec8f2b03ad8dbc7cba8d3a49389bb4dd57468e756b066",
+    "lf_sha256": "d4d08d2722e336f5179ec8f2b03ad8dbc7cba8d3a49389bb4dd57468e756b066",
+    "timestamp": "2026-11-25T18:23:16+01:00",
+    "note": "adds section 01e (rule R-01e: residual rating sentences); supersedes entry 13"
+  },
+  {
+    "file": "work/rule2/controlB_redacted_v2.jsonl",
+    "sha256": "ed8ff85a820ae3d7865ebb12219ffe7243daa6e6a4eccd0623d1fae141e7718d",
+    "lf_sha256": "578a3ee6209868990f4b14eea73f07174d220eedd94800c459651ceb635f681b",
+    "timestamp": "2026-11-25T18:23:16+01:00",
+    "note": "control-B redacted texts after R-01e (CB-144, CB-145, CB-190, CB-213 changed; 7 removals); v1 controlB_redacted.jsonl kept; R-01e leaves the frozen redacted.jsonl byte-identical"
   }
 ]
