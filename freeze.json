@@ -1,0 +1,16 @@
+{
+  "frozen_at": "2026-10-29T15:53:17",
+  "sha256": {
+    "protocol": "da134ae7a4de513b94469b56e637a495219bda7db8e351217caa1c85e089bd3e",
+    "codebook": "bb3a5694a3bb11684d69429edd26f709894fafe8b3eee6beeff926784bbf1bcb",
+    "script": "e46446f890755bc4f05df948a5df3e013c7bbc9dcf94f4c9421e3e10b38c5daa"
+  },
+  "prompt_sha256": {
+    "variant_1": "35e77a1c0974abb6a61ccaf2b220971953fb35d912ed3738baba7d96290b715f",
+    "variant_2": "662066094f8fa48f76a96ac39743e018ac5211f9434d041d7bb9479331dd7224",
+    "variant_3": "8285081942a0ca051985f8b7fad22fb760decd60af9e9f7952b94b082f3af8aa"
+  },
+  "sample_sha256": "48bcf20a3df4e51bd5e8ce3432710f4c0c05d2669a1054120f053021e259b2ea",
+  "redacted_sha256": "b3d00316e3f8406ba8f17a97dc2a1df5b419c5959a808a2ff3cbc0ca1d59a6b1",
+  "fresh_sample_sha256": "30b758a6a72ebbf15239cc36f80f9d4d5acebc901444baefb5809683c4871210"
+}

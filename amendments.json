@@ -1,0 +1,13 @@
+[
+  {
+    "file": "work/rule2/amendment_01_control_expansion.md",
+    "sha256": "de76ca15253bc3ea64702141213b078f45a0737f98ac9f66958bf66db12f41a4",
+    "timestamp": "2026-11-25T16:54:26+01:00"
+  },
+  {
+    "file": "work/rule2/amendment_01_control_expansion.md",
+    "sha256": "f42578a88cafb3f0c237d3b270d5cec02bc58a94e95777182a067278285ba032",
+    "timestamp": "2026-11-25T16:55:34+01:00",
+    "note": "adds seed; supersedes entry 1"
+  }
+]
