@@ -213,5 +213,59 @@
     "lf_sha256": "903350012d556c06161865247efe5defba13e1e026161b31a97d9fc1a8af03e0",
     "timestamp": "2026-11-25T19:25:41+01:00",
     "note": "adds 01f item 5 (F04885, F03039, F04073 excluded from primary analyses; F02179 to sensitivity set); supersedes entry 23"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "936b514fa9b2eaa5e05210c31d8bf7f29807692f1756e801f780c8801dc3d2e0",
+    "lf_sha256": "936b514fa9b2eaa5e05210c31d8bf7f29807692f1756e801f780c8801dc3d2e0",
+    "timestamp": "2026-11-25T21:07:19+01:00",
+    "note": "adds 01g (pilot records: 10 R1 pilot records are the R1 answers used; viewed in pilot_check.txt; sensitivity analysis without them); supersedes entry 24"
+  },
+  {
+    "file": "(Claude Code CLI version)",
+    "cli_version": "2.1.318 (Claude Code)",
+    "timestamp": "2026-11-25T21:07:19+01:00",
+    "note": "output of 'claude --version' on 2026-11-25 (the control-B rater runs of 2026-11-25 18:29-18:35 used this installation unless it was updated in between; not logged per call). The CLI version used for the main and original-control rater runs and the pilot on 2026-10-29 was not logged."
+  },
+  {
+    "file": "work/rule2/amendment_02_R3_R4_openrouter.md",
+    "sha256": "b6a68122e3f5cbf115549a454e62c67783137fe7bec7c903ea9b82efd5ee4c29",
+    "lf_sha256": "b6a68122e3f5cbf115549a454e62c67783137fe7bec7c903ea9b82efd5ee4c29",
+    "bytes": 7544,
+    "timestamp": "2026-11-25T21:36:36+01:00",
+    "note": "Amendment 02: R3 (qwen/qwen3-235b-a22b-2507 @ Parasail) and R4 (deepseek/deepseek-chat-v3-0324 @ SiliconFlow) via OpenRouter; registered before any R3 or R4 call and before any Rule 2 or contamination result was viewed"
+  },
+  {
+    "file": "work/rule2/scripts/openrouter_raters.py",
+    "sha256": "7ec618ffc02fbf70d41bd462300930151ec2c9b8852c2e85a88be6aa23612728",
+    "lf_sha256": "7ec618ffc02fbf70d41bd462300930151ec2c9b8852c2e85a88be6aa23612728",
+    "bytes": 12309,
+    "timestamp": "2026-11-25T21:36:36+01:00",
+    "note": "Amendment 02 rater script (items 2-6, 9-11); dry run only so far (no network call, key not read): freeze, variant-3 prompt hash, redacted.jsonl and control-B v2 hashes verified; 363 prompts built per rater"
+  },
+  {
+    "file": "(OpenRouter public listing 2026-11-25)",
+    "files": [
+      {
+        "file": "work/rule2/openrouter_listing_2026-11-25/qwen_endpoints.json",
+        "sha256": "42442abbcddd79423e695a1a6283e7208d69734584a5094ca192a828c32d748c",
+        "lf_sha256": "42442abbcddd79423e695a1a6283e7208d69734584a5094ca192a828c32d748c",
+        "bytes": 5640
+      },
+      {
+        "file": "work/rule2/openrouter_listing_2026-11-25/deepseek_endpoints.json",
+        "sha256": "1e902387fa0990141a042b858a108d485d10562a5ddf6fa6e3aa349c90bc66c8",
+        "lf_sha256": "1e902387fa0990141a042b858a108d485d10562a5ddf6fa6e3aa349c90bc66c8",
+        "bytes": 2474
+      },
+      {
+        "file": "work/rule2/openrouter_listing_2026-11-25/providers.json",
+        "sha256": "d098a888447bfe9ca22b56c7c867396c043b73cfaa7d412561148952f7a20240",
+        "lf_sha256": "d098a888447bfe9ca22b56c7c867396c043b73cfaa7d412561148952f7a20240",
+        "bytes": 29322
+      }
+    ],
+    "timestamp": "2026-11-25T21:36:36+01:00",
+    "note": "public OpenRouter endpoint and provider listing (no key) used to pin providers, Amendment 02 item 2"
   }
 ]
