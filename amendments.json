@@ -22,5 +22,23 @@
     "sha256": "abdb11152bc37fb6361f067db6986c2ccf0ccbefd788d38e8101edeb6b33d641",
     "timestamp": "2026-11-25T17:35:26+01:00",
     "note": "Amendment 01a: clarifications to Amendment 01 (eligibility, Spearbit, cap scope)"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "df955683043bb01e1ccb5881a5ab92391ee45ad238bb1ab4c472fd7614983105",
+    "timestamp": "2026-11-25T17:40:14+01:00",
+    "note": "adds section 01b (caps within control-B; project random effect / clustered SE); supersedes entry 4"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "e74795695b9718104bfe88a09c97ae2bb0dcd47d0c3ae166d1086a62454efba3",
+    "timestamp": "2026-11-25T17:42:05+01:00",
+    "note": "adds 01b item 5 (firm shares capped at target; expected size 23); supersedes entry 5"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "c47c76e70ec33ea9bb5476ec19f48e8293bf7b1a14508d4b1b8137d7e4ad6723",
+    "timestamp": "2026-11-25T17:43:51+01:00",
+    "note": "01b item 5: clarifies Spearbit reallocation vs shortfall; supersedes entry 6"
   }
 ]

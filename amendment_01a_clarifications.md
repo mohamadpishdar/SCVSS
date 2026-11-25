@@ -5,3 +5,15 @@ Amendment 01a: clarifications to Amendment 01 (control-B), decided 2026-11-25 be
 2. Spearbit. Spearbit is excluded from control-B because its public repository contains no report published after 31 August 2026. Reports published under the Cantina name are not counted as Spearbit. Spearbit's share is reallocated to the other main-sample firms.
 
 3. Caps. The limits of at most 2 findings per report and at most 2 findings per project apply to the original control group and control-B combined. Findings already in the original control group count towards these limits, and no finding is drawn twice.
+
+## 01b (2026-11-25): final decisions for control-B, made from candidate counts only, before any draw and before any Rule 2 or contamination result was viewed
+
+1. Eligibility. Both rules apply: the report was published after 31 August 2026, and it meets the audit-start rule of protocol section 5 (as in item 1 above; unchanged).
+
+2. Spearbit. Spearbit is excluded; reports published under the Cantina name are not counted as Spearbit (as in item 2 above; unchanged).
+
+3. Caps. The limits of at most 2 findings per report and at most 2 findings per project apply within control-B only. This replaces item 3 above. Reason: with the caps applied across both control sets, only about 13 findings qualify, 7 of them from QuillAudits. Findings already in the original control group are still not drawn again.
+
+4. Analysis. The pooled contamination test (main vs original control + control-B, Medium/Low findings, firms present in both groups) models project as a random effect, or uses standard errors clustered by project, and keeps firm as a covariate.
+
+5. Firm shares. Each firm contributes at most its target share of 40 (rounded as in the table); firms below target contribute all drawable findings; no reallocation of the shortfall (Spearbit's share was reallocated when the targets of 40 were computed, as in item 2 above; shortfalls of firms below target are not reallocated). Expected size 23 (QuillAudits 7, Sherlock 4, Zellic 4, Trail of Bits 2, Nethermind 3, Cyfrin 3). Decided from candidate counts only, before any draw.
