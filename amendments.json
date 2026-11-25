@@ -97,5 +97,101 @@
     "lf_sha256": "578a3ee6209868990f4b14eea73f07174d220eedd94800c459651ceb635f681b",
     "timestamp": "2026-11-25T18:23:16+01:00",
     "note": "control-B redacted texts after R-01e (CB-144, CB-145, CB-190, CB-213 changed; 7 removals); v1 controlB_redacted.jsonl kept; R-01e leaves the frozen redacted.jsonl byte-identical"
+  },
+  {
+    "file": "(registration)",
+    "sha256": "",
+    "timestamp": "2026-11-25T18:26:41+01:00",
+    "note": "external registration (commit a895c06). Verified after LF normalisation: amendment_01a_clarifications.md = entry 14 (d4d08d27...); controlB_redacted_v2.jsonl = entry 15 (LF 578a3ee6...); amendments.json = entries 1-15.",
+    "registration": "https://github.com/mohamadpishdar/SCVSS/commit/a895c060e25a446af9500b646da574eb4a52e4f0"
+  },
+  {
+    "file": "work/rule2/controlB_answers_R1.jsonl",
+    "sha256": "c11adc257800d051b96e683b63bce7f6c78aae908e14424fdbcfa14f8c7f0312",
+    "lf_sha256": "f9fdb22223527f7389dbc539a8f7d039bc6aab3de0e47a0eac24c61dec5a460e",
+    "bytes": 74068,
+    "timestamp": "2026-11-25T18:35:35+01:00",
+    "note": "control-B rater answers R1 (23 findings, 23 parsed, 0 failed); content not opened"
+  },
+  {
+    "file": "work/rule2/controlB_answers_R1b.jsonl",
+    "sha256": "6675c6de6ade04135ea2daf241f4ff8ac3cf52f5af9bbffa566e4438e326538d",
+    "lf_sha256": "68d11f7a8b7ffc7fc510b316fe960ed48315a1983d8e5eeab1852e89dd3da67a",
+    "bytes": 73578,
+    "timestamp": "2026-11-25T18:35:35+01:00",
+    "note": "control-B rater answers R1b (23 findings, 23 parsed, 0 failed); content not opened"
+  },
+  {
+    "file": "work/rule2/controlB_answers_R2.jsonl",
+    "sha256": "a577ff45276d8c5e51754860d9dcf5aa9a088e3df088f7f8474c06f66138dcb9",
+    "lf_sha256": "b18cf9707e7ef8d70a8d24e3e546c9072e43f9dd31ba4c7ce39755f37d396b15",
+    "bytes": 82995,
+    "timestamp": "2026-11-25T18:35:35+01:00",
+    "note": "control-B rater answers R2 (23 findings, 23 parsed, 0 failed); content not opened"
+  },
+  {
+    "file": "work/rule2/answers_rule2.jsonl",
+    "sha256": "78915a398d753f20ababa0f2c7f3199f012c9cbcb1667ae9a7fb9623edc6bfdc",
+    "lf_sha256": "015a27fa3fcb5a3df343b0e2c68259fbe52a83264728084076739d77ce0c9785",
+    "bytes": 3298422,
+    "timestamp": "2026-11-25T18:35:35+01:00",
+    "note": "frozen main answer file written by rule2.py extract (all R1, R1b, R2 runs on the 340 findings, incl. the R1 pilot records); content not opened; registered 2026-11-25, before any Rule 2 analysis, contamination comparison or probe result was viewed"
+  },
+  {
+    "file": "work/rule2/probe.jsonl",
+    "sha256": "20d7b42355908352d97535ae7324a61d2e6b68b4fb5a9953de4b95427408aef0",
+    "lf_sha256": "6e1d6dbd62125c65ff770af3c7bcc5a0bce124bf15b10b51dafd77f08cf199a8",
+    "bytes": 57769,
+    "timestamp": "2026-11-25T18:35:35+01:00",
+    "note": "memorisation probe output (rule2.py probe); content not opened; registered 2026-11-25, before any Rule 2 analysis, contamination comparison or probe result was viewed"
+  },
+  {
+    "file": "(extract run logs)",
+    "files": [
+      {
+        "file": "work/rule2/pilot_R1_run.log",
+        "sha256": "eaa6d3aed05fa9c4002071ab8d576be62763d5f13b1ec22c8985cee52ad3fbd2",
+        "lf_sha256": "4b9947d20c534911a1751aa38498e9a11c949006c052dce783c0fec50fd0bf25",
+        "bytes": 601
+      },
+      {
+        "file": "work/rule2/extract_R1_run.log",
+        "sha256": "1cdd95b34ff49949c4e61c2ed05321a56f81ef0796fd97c66f51fe289c65f2bd",
+        "lf_sha256": "6176d6e26acca561b79098286f1a15592094b03d658957a5fd6a8269eda3f088",
+        "bytes": 18500
+      },
+      {
+        "file": "work/rule2/extract_R1b_run.log",
+        "sha256": "f0a8121bcb4504ecbd3a4cf753a078bbfc8dc81b0a310f18a8f6b26d3fb05a84",
+        "lf_sha256": "d4683c758c057abdda05fb4ae6801b7774713f3dd8baecad370439620913f8c7",
+        "bytes": 19738
+      },
+      {
+        "file": "work/rule2/extract_R1b_retry.log",
+        "sha256": "1e492dc79acdb0ae0e5db68f5065587d346b6ddac5c85eb393ac42adeaa4d981",
+        "lf_sha256": "8e59fa471f52a497b98b472bd04d4a68c7a2e29a3a9a79689337a46d8ecdd0c5",
+        "bytes": 286
+      },
+      {
+        "file": "work/rule2/extract_R2_run.log",
+        "sha256": "bbdb09d1cfbb2f5fd7f5d81010e4c29ba58e814c2e0057d2ec64cad39a802135",
+        "lf_sha256": "45c9f00849b9defd8536de524dc70638a66fd4476719cbd81e765a6177d1b3d9",
+        "bytes": 18710
+      },
+      {
+        "file": "work/rule2/extract_R2_retry.log",
+        "sha256": "2290efcbad2740f517b0dd4000d6d8bf466d3cf4c7f7a9b10f4f1d2fb1bcd898",
+        "lf_sha256": "a29b8af97d12b50c32c45cc6f0e2a077bb6fd9032ba627c14a592826fb0247a3",
+        "bytes": 134
+      },
+      {
+        "file": "work/rule2/controlB_extract_run.log",
+        "sha256": "b0516a0f0ce8c64c50b96d52338f2717b934acf43b21e79132895c606edb7ffd",
+        "lf_sha256": "ae12f7e2b42fe16bbd5d2b4ba356c967935440dffe516f0646029f68388ac1ad",
+        "bytes": 1603
+      }
+    ],
+    "timestamp": "2026-11-25T18:35:35+01:00",
+    "note": "extract run logs (main sample incl. pilot and retries; control-B); registered 2026-11-25, before any Rule 2 analysis, contamination comparison or probe result was viewed"
   }
 ]
