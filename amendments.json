@@ -199,5 +199,19 @@
     ],
     "timestamp": "2026-11-25T18:35:35+01:00",
     "note": "extract run logs (main sample incl. pilot and retries; control-B) and the probe run log; registered 2026-11-25, before any Rule 2 analysis, contamination comparison or probe result was viewed"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "dffc5f980cd2ee95c64f07009923a7b01e6ba18bbab64f232313b21ef5cc7779",
+    "lf_sha256": "dffc5f980cd2ee95c64f07009923a7b01e6ba18bbab64f232313b21ef5cc7779",
+    "timestamp": "2026-11-25T19:22:35+01:00",
+    "note": "adds section 01f (CB-222 duplicate of FR-365 excluded; F04321 excluded; F01578 to sensitivity set); supersedes entry 14"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "903350012d556c06161865247efe5defba13e1e026161b31a97d9fc1a8af03e0",
+    "lf_sha256": "903350012d556c06161865247efe5defba13e1e026161b31a97d9fc1a8af03e0",
+    "timestamp": "2026-11-25T19:25:41+01:00",
+    "note": "adds 01f item 5 (F04885, F03039, F04073 excluded from primary analyses; F02179 to sensitivity set); supersedes entry 23"
   }
 ]

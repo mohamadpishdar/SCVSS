@@ -33,3 +33,10 @@ Amendment 01a: clarifications to Amendment 01 (control-B), decided 2026-11-25 be
 1. Rule R-01e removes a capitalised severity word (Critical, High, Medium, Low, Informational) used as a rating in forms A-C of rating_sentence_scan.py: (A) together with a preceding "hence/thus/therefore/so/making it|this"; (B) a sentence consisting only of the word, removed whole; (C) the word in "<Sev> for ...", leaving the rest of the clause. No other text is changed.
 2. R-01e applies to all three groups. In the main sample and the original control it matches nothing, so the frozen redacted.jsonl is unchanged; it changes control-B texts CB-144, CB-145, CB-190 and CB-213 only.
 3. F01554 (main sample, lowercase "high") is not matched by R-01e and stays; it is added to the sensitivity analysis that excludes CB-100 and F00211.
+
+## 01f (2026-11-25): data issues found by the redaction statistics, decided before any Rule 2 analysis, contamination comparison or probe result was viewed
+1. CB-222 duplicates FR-365 (original control; republished in the 2026-11-24 Sherlock Maple report). CB-222 is excluded from all control-B analyses. The primary contamination test uses 21 control-B findings.
+2. F04321 has an empty redacted text (its excerpt was a judging discussion only). It is excluded from all Rule 2 analyses; if it is in the human coding form it is still coded but not analysed.
+3. F01578 keeps a neighbouring finding's status line ("Verified. Fixed in"); it joins the sensitivity analysis with CB-100, F00211 and F01554.
+4. Answers for CB-222 and F04321 are kept in the answer files and not deleted.
+5. F04885, F03039 and F04073 (Trail of Bits windows without the finding body, listed as known limitations before the freeze) are excluded from the primary Rule 2 analyses for the same reason as F04321 and included in a sensitivity analysis. F02179 (one character per line, full text present) stays in the primary analyses and joins the sensitivity set.
