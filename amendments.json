@@ -40,5 +40,30 @@
     "sha256": "c47c76e70ec33ea9bb5476ec19f48e8293bf7b1a14508d4b1b8137d7e4ad6723",
     "timestamp": "2026-11-25T17:43:51+01:00",
     "note": "01b item 5: clarifies Spearbit reallocation vs shortfall; supersedes entry 6"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "c47c76e70ec33ea9bb5476ec19f48e8293bf7b1a14508d4b1b8137d7e4ad6723",
+    "timestamp": "2026-11-25T17:45:00+01:00",
+    "note": "external registration of entries 4-7; uploaded amendment_01a_clarifications.md verified byte-identical (sha256 c47c76e7...); uploaded amendments.json has entries 1-7, content identical (LF vs local CRLF line endings)",
+    "registration": "https://github.com/mohamadpishdar/SCVSS/commit/36e999016244b3fa8cb9020fb9f2985b5af5745c"
+  },
+  {
+    "file": "work/rule2/controlB_sample.csv",
+    "sha256": "4cf6a502e426cad472de822abe7ccc0249e1157b55ba88c9449fa7aa96e2fa29",
+    "timestamp": "2026-11-25T17:48:22+01:00",
+    "note": "control-B sample (23 findings), drawn with the registered seed; before redaction"
+  },
+  {
+    "file": "work/rule2/controlB_prior_overlap.csv",
+    "sha256": "a5b98279f08a9de56c490661dfd5a6e9acf01c7452da03b813b69876f3eda9ec",
+    "timestamp": "2026-11-25T17:50:11+01:00",
+    "note": "prior-overlap check of the 12 control-B findings with prior_project_in_corpus=yes (1 same issue, 5 related, 6 different); before redaction"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "5346fcf602e98b4dffab8433474164d0f4e35939bede76d347aaf91acc4c6053",
+    "timestamp": "2026-11-25T17:51:27+01:00",
+    "note": "adds section 01c (handling of prior-report overlap); supersedes entry 7"
   }
 ]

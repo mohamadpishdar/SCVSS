@@ -1,0 +1,3393 @@
+finding_id,source_id,bug_title,source_pdf,firm,project,audit_start,start_from_report_date,prior_project_in_corpus,report_date,severity,original_text
+CB-144,FR-350,7. The FDV ratchet enforces a minimum TWAP window with no maximum,QuillAudits__Cracker_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,cracker,2026-08-31,no,no,2026-09,Low,"Low Severity Issues
+Low Severity Issues
+7. The FDV ratchet enforces a minimum TWAP window
+with no maximum
+Acknowledged
+Path
+contracts/LPFeeRatchet.sol, contracts/TokenSplitter.sol
+Function Name
+poke(), TokenSplitter._creatorBps()
+poke() reverts only when the observed span is below TWAP_WINDOW (LPFeeRatchet.sol:168-169);
+there is no maximum-window cap. If poke goes uncalled after a window matures, or trading is
+sparse enough that the hook's last observation advances only occasionally, the committed
+average is computed over however long the window has actually been open, potentially far longer
+than 24 hours, diluting recent price movement with stale data.
+Impact
+Because the tier function is a step function, a diluted average can hold the split at the higher
+creator tier materially longer than the schedule intends. TokenSplitter._creatorBps reads the live
+tier on every LP-fee deposit, so the creator keeps receiving the pre-ratchet share of every harvest
+for the duration of the over-long window: a real, bounded, self-correcting transfer from treasury to
+creator
+Likelihood
+Medium in keeper-liveness terms, but mitigated. poke is permissionless, so any keeper can call it
+the moment a window matures, capping typical exposure near 24 hours.
+Recommendation
+Enforce a maximum span, for example twice TWAP_WINDOW, and reopen the window instead of
+committing when it is exceeded, or snapshot fixed windows automatically.
+CrackerSwap Team’s Comment
+The window span is measured in observed time, which only swaps advance, so a pool trading once
+a month legitimately has a month-long window. Any cap tight enough to matter would re-anchor
+those windows forever, permanently favouring the creator, which is the opposite of the finding's
+intent. The fix for issue 4 mitigates this instead: every harvest now pokes the ratchet, so windows
+close promptly rather than growing stale.
+43
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Low Severity Issues
+Low Severity Issues
+8. The FDV ratchet reads only the single hooked V4
+pool, blind to other venues
+Acknowledged
+Path
+contracts/LPFeeRatchet.sol
+Function Name
+poolKeyOf(), poke()
+poolKeyOf hardcodes a single pool key, native ETH against the launch token with the dynamic-fee
+flag and the ratchet's own immutable tick spacing and hook (LPFeeRatchet.sol:98-106), and poke
+derives FDV solely from that pool's TWAP. Nothing stops a third party from creating an unhooked
+pool for the same token once it is transferable; only the hooked key is gated, by
+AntiSnipeHook._beforeInitialize.
+Impact
+The committed tier can persistently disagree with the token's real fully diluted valuation. If price
+discovery migrates to another venue while the hooked pool stays thin or stale, the ratchet never
+advances and the creator retains a higher tier than warranted; alternatively the ratchet is pushed
+by cheap activity on the now-isolated pool, which is the same manipulation surface as issue 3
+made easier by low liquidity. No principal loss; only the fee split is affected.
+Likelihood
+Medium for successful tokens, where venue fragmentation is the norm. Low for long-tail launches
+whose only market is the hooked pool.
+Recommendation
+Document that the tier keys to the hooked pool only. If cross-venue FDV matters, blend in an
+external oracle or a liquidity-weighted median across known pools.
+CrackerSwap Team’s Comment
+The tier intentionally keys to the pool this protocol opened, not to the token's global market.
+Blending venues would require either a price feed working on four chains before a single launch
+can be repriced, with a stale feed then sitting between creators and their fees, or a hardcoded
+guess at which pools count. This is the same trade-off FDV_TIERS already makes by pinning USD
+thresholds to native wei. The behaviour is documented in ARCHITECTURE.md
+44
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Low Severity Issues
+Low Severity Issues
+9. The closing buyer funds the entire graduation
+settlement, uncompensated and without opt-out
+Acknowledged
+Path
+contracts/BondingCurve.sol
+Function Name
+_buy(), settleGraduation(), graduate(), enterRecovery()
+Any buy that pushes realQuote to or above graduationTarget attempts settleGraduation()
+atomically inside the same transaction (BondingCurve.sol:311-331). The settlement frame covers
+the splitter fee deposit, the token burn, the token transfer, then migration into pool initialisation, a
+full-range mint through Permit2, and the NFT handoff with locker validation. It measures 650,781
+gas against the 800,000 MIN_SETTLE_GAS floor (:324).
+The closer is paid nothing for this. Graduation continuity opens the V4 pool at exactly the price the
+closer just paid, so closing carries no arbitrage, and the anti-snipe hook's opening fee taxes any
+same-window exit, making close-and-dump unprofitable during the decay window. Meanwhile a buy
+just below the target always succeeds, while a crossing buy additionally reverts in full if the caller
+leaves less than MIN_SETTLE_GAS at close time. The marginal buyer therefore strictly prefers
+staying below the target.
+Impact
+Graduation depends on altruistic or strategic actors: the creator, the team, or a holder waiting out
+the decay window. A curve can idle at more than 99% of target with no forced path across. No
+funds are at risk, since sells remain open in TRADING, and once any buy does close the curve
+graduate() is permissionless. On the verified chains the subsidy is cents; on an expensive-gas
+chain the same structure would make stalls economically rational rather than merely marginal.
+Likelihood
+Medium that stalls occur transiently; low impact when they do, and self-correcting, since any
+holder may close at any time.
+Recommendation
+Retain the revert (InsufficientGasForSettlement) and preserve atomic graduation. Do not
+implement the succeed-and-defer approach.
+45
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Low Severity Issues
+9. The closing buyer funds the entire graduation settlement,
+uncompensated and without opt-out 
+CrackerSwap Team’s Comment
+We believe the recommended fix is unsafe and have not implemented it. eth_estimateGas binary-
+searches for the cheapest gas that succeeds; if a close that skipped settlement succeeded,
+every wallet would converge on that path and settlement would never fire in production, reopening
+the window between curve close and pool open that atomic settlement exists to eliminate. This is
+invariant I16, asserted in fork/LifecycleFailures.fork.ts by sending the closing buy at the wallet's
+own gas estimate against live Uniswap V4. A closer rebate from the graduation fee was also
+rejected: it would place an ETH transfer to an arbitrary address inside _settle, letting a closer with
+a reverting receive() force a deferral, so any future version must be pull-payment. The issue is
+instead answered operationally: a Graduate button on any CLOSED curve gated on the module's
+migrationReady() view, the creator as the natural closer since LP fees do not accrue until the pool
+exists, and a keeper as backstop that also calls collect() to keep the FDV window fresh. Measured
+[...excerpt ends]"
+CB-145,FR-351,"8. The FDV ratchet reads only the single hooked V4 pool, blind to other venues",QuillAudits__Cracker_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,cracker,2026-08-31,no,no,2026-09,Low,"Low Severity Issues
+Low Severity Issues
+8. The FDV ratchet reads only the single hooked V4
+pool, blind to other venues
+Acknowledged
+Path
+contracts/LPFeeRatchet.sol
+Function Name
+poolKeyOf(), poke()
+poolKeyOf hardcodes a single pool key, native ETH against the launch token with the dynamic-fee
+flag and the ratchet's own immutable tick spacing and hook (LPFeeRatchet.sol:98-106), and poke
+derives FDV solely from that pool's TWAP. Nothing stops a third party from creating an unhooked
+pool for the same token once it is transferable; only the hooked key is gated, by
+AntiSnipeHook._beforeInitialize.
+Impact
+The committed tier can persistently disagree with the token's real fully diluted valuation. If price
+discovery migrates to another venue while the hooked pool stays thin or stale, the ratchet never
+advances and the creator retains a higher tier than warranted; alternatively the ratchet is pushed
+by cheap activity on the now-isolated pool, which is the same manipulation surface as issue 3
+made easier by low liquidity. No principal loss; only the fee split is affected.
+Likelihood
+Medium for successful tokens, where venue fragmentation is the norm. Low for long-tail launches
+whose only market is the hooked pool.
+Recommendation
+Document that the tier keys to the hooked pool only. If cross-venue FDV matters, blend in an
+external oracle or a liquidity-weighted median across known pools.
+CrackerSwap Team’s Comment
+The tier intentionally keys to the pool this protocol opened, not to the token's global market.
+Blending venues would require either a price feed working on four chains before a single launch
+can be repriced, with a stale feed then sitting between creators and their fees, or a hardcoded
+guess at which pools count. This is the same trade-off FDV_TIERS already makes by pinning USD
+thresholds to native wei. The behaviour is documented in ARCHITECTURE.md
+44
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Low Severity Issues
+Low Severity Issues
+9. The closing buyer funds the entire graduation
+settlement, uncompensated and without opt-out
+Acknowledged
+Path
+contracts/BondingCurve.sol
+Function Name
+_buy(), settleGraduation(), graduate(), enterRecovery()
+Any buy that pushes realQuote to or above graduationTarget attempts settleGraduation()
+atomically inside the same transaction (BondingCurve.sol:311-331). The settlement frame covers
+the splitter fee deposit, the token burn, the token transfer, then migration into pool initialisation, a
+full-range mint through Permit2, and the NFT handoff with locker validation. It measures 650,781
+gas against the 800,000 MIN_SETTLE_GAS floor (:324).
+The closer is paid nothing for this. Graduation continuity opens the V4 pool at exactly the price the
+closer just paid, so closing carries no arbitrage, and the anti-snipe hook's opening fee taxes any
+same-window exit, making close-and-dump unprofitable during the decay window. Meanwhile a buy
+just below the target always succeeds, while a crossing buy additionally reverts in full if the caller
+leaves less than MIN_SETTLE_GAS at close time. The marginal buyer therefore strictly prefers
+staying below the target.
+Impact
+Graduation depends on altruistic or strategic actors: the creator, the team, or a holder waiting out
+the decay window. A curve can idle at more than 99% of target with no forced path across. No
+funds are at risk, since sells remain open in TRADING, and once any buy does close the curve
+graduate() is permissionless. On the verified chains the subsidy is cents; on an expensive-gas
+chain the same structure would make stalls economically rational rather than merely marginal.
+Likelihood
+Medium that stalls occur transiently; low impact when they do, and self-correcting, since any
+holder may close at any time.
+Recommendation
+Retain the revert (InsufficientGasForSettlement) and preserve atomic graduation. Do not
+implement the succeed-and-defer approach.
+45
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Low Severity Issues
+9. The closing buyer funds the entire graduation settlement,
+uncompensated and without opt-out 
+CrackerSwap Team’s Comment
+We believe the recommended fix is unsafe and have not implemented it. eth_estimateGas binary-
+searches for the cheapest gas that succeeds; if a close that skipped settlement succeeded,
+every wallet would converge on that path and settlement would never fire in production, reopening
+the window between curve close and pool open that atomic settlement exists to eliminate. This is
+invariant I16, asserted in fork/LifecycleFailures.fork.ts by sending the closing buy at the wallet's
+own gas estimate against live Uniswap V4. A closer rebate from the graduation fee was also
+rejected: it would place an ETH transfer to an arbitrary address inside _settle, letting a closer with
+a reverting receive() force a deferral, so any future version must be pull-payment. The issue is
+instead answered operationally: a Graduate button on any CLOSED curve gated on the module's
+migrationReady() view, the creator as the natural closer since LP fees do not accrue until the pool
+exists, and a keeper as backstop that also calls collect() to keep the FDV window fresh. Measured
+on Ink, the subsidy the closing buyer pays is approximately $0.001. Documented in
+ARCHITECTURE.md
+(continued)
+46
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Informational Severity Issues
+Informational Severity Issues
+10. Launch tokens transferred into the curve during
+RECOVERY sells are permanently locked
+Resolved
+Path
+contracts/BondingCurve.sol
+Function Name
+enterRecovery(), sell()
+enterRecovery() burns the curve's entire held reserve once, at the moment RECOVERY opens
+(BondingCurve.sol:400-401). Every subsequent RECOVERY sell() pulls the seller's tokens into the
+curve while paying out the pro-rata claim from tracked state (:365). The incoming tokens are never
+burned, re-sold, or otherwise exitable, and accrete in the curve forever.
+Impact
+Tokens sold back during wind-down are locked rather than burned, so total supply after a recovery
+wind-down overstates circulating and burned expectations. Accounting drift only; no value is
+extractable. We traced the RECOVERY path specifically for an extraction route and found none:
+the pro-rata claim preserves the reserve-to-outstanding ratio, with floor rounding moving it upward
+and so favouring later sellers by dust; the guard bounding a sell by the outstanding total limits
+redemption to exactly the outstanding supply; and the curve has no path that returns
+accumulated tokens.
+Likelihood
+Certain on any curve that enters RECOVERY and processes sells; impact is accounting-only.
+Recommendation
+Burn the incoming tokens in the RECOVERY branch of sell(), immediately after the transfer in,
+keeping post-mortem supply consistent.
+47
+www.quillaudits.com
+
+CrackerSwap Audit Report
+Informational Severity Issues
+Informational Severity Issues
+11. Quote views return live-looking numbers after graduation
+Resolved
+Path
+contracts/BondingCurve.sol
+Function Name
+reserves(), quoteBuy(), quoteSell(), tokensSold()
+[...excerpt ends]"
+CB-100,FR-233,Redelegating into a matured position makes already earned rewards forfeitable,Nethermind__NM0451-1052-FINAL_Vana_Staking.pdf,Nethermind,vana,2026-09-29,yes,yes,2026-09,Medium,"NM-1052 - VANA STAKING - SECURITY REVIEW
+6.5
+[Medium] Redelegating into a matured position makes already earned rewards
+forfeitable
+File(s): /vanaPoolStaking/VanaPoolStakingImplementation.sol
+Description: Stakers serve a bonding period, during which an early exit returns only the principal and forfeits the accrued rewards. Once
+that period has elapsed the position is matured and its rewards are withdrawable. The redelegate(...) function from the VanaPoolStaking
+contract lets a staker move a position between entities, and its documentation states that the full share value, principal plus accrued
+rewards, travels with the staker and that there is no forfeiture.
+When a staker adds to an already matured position through the stake(...) function, the contract first records the matured gain into
+vestedRewards and resets the cost basis to the current value, so that the gain can no longer be lost before it re-bonds the position.
+1
+if (stakerEntity.rewardEligibilityTimestamp <= currentTimestamp) {
+2
+if (stakerEntity.shares > 0) {
+3
+uint256 oldValue = (stakerEntity.shares * shareToVana) / 1e18;
+4
+if (oldValue > stakerEntity.costBasis) {
+5
+stakerEntity.vestedRewards += oldValue - stakerEntity.costBasis;
+6
+}
+7
+}
+8
+// @audit The cost basis absorbs the matured gain before the bond is reset.
+9
+stakerEntity.costBasis = newTotalValue;
+10
+// ...
+11
+}
+The destination side of the redelegation performs no such record. It adds only the principal to the cost basis and then writes a new, future
+eligibility timestamp over the destination position.
+1
+// @audit-issue The matured gain is not crystallised before the position is re-bonded.
+2
+to.costBasis += movedCostBasis;
+3
+to.vestedRewards += movedVested;
+4
+to.shares += sharesIssued;
+A staker who holds a matured position in one entity and a bonded position in another, and who moves the second into the first puts their
+previously safe rewards back at risk. If they exit before the newly imposed bond elapses, the unstaking logic takes the bonding branch,
+returns only the cost basis, and routes the difference back into the entity’s locked pool for other stakers and the entity owner’s commission.
+Recommendation(s): Consider mirroring the logic that the staking path already performs, so that a matured destination position has
+its unrealised gain converted into cost basis before any new bonding deadline is applied to it. Consider also reviewing whether the
+documented promise that no forfeiture occurs during redelegation holds for every combination of source and destination maturity.
+Status: Fixed
+Update from the client:
+Pushed — c583cc7. Here’s the auditor summary:
+[Medium] Redelegating into a matured position makes earned rewards forfeitable — Fixed (commit c583cc7)
+Root cause confirmed: stake into a matured position crystallizes the earned gain into cost basis before re-bonding (costBasis = newTotal-
+Value), so a later bonding-period exit still returns it. redelegate’s destination side did not — it added only the moved principal (to.costBasis
++= movedCostBasis) and wrote a new future eligibility over the merged position. A staker holding a matured position in A and a bonded
+position in B who redelegated B→A had A re-bonded with its gain not crystallized; exiting A before the new bond took the bonding branch
+and forfeited that gain — breaking the documented ""full value travels, no forfeiture.""
+Fix: on the destination, before applying the new bond, crystallize to’s gain when it is matured (mirrors stake’s eligible branch):
+if (existingRemaining == 0 to.shares > 0 existingValue > to.costBasis) to.vestedRewards += existingValue - to.costBasis; to.costBasis =
+existingValue;
+redelegate is now a proper superset of the manual path — it preserves B’s rewards (which the manual path forfeits on B’s bonded exit)
+and protects A’s matured gain.
+Update from Nethermind: The updated logic only checks if the recipient has a matured position, but it doesn’t check if from’s position is
+matured. This means that if a matured position is redelegated, the rewards become subject to the bounding period again. Consider using
+a similar approach to the one used for realizing the rewards for the to’s position.
+Update from the client: Confirmed and fixed (787e074). redelegate now crystallizes a matured source’s unrealized gain into the car-
+ried cost basis and vestedRewards before the merge (the same pattern stake() applies when topping up a matured position), so a bond
+imposed by the destination cannot make it forfeitable; the source is debited by the proportional originals. Test test_scenario2_redele-
+gateMaturedAintoBondedB: a 72.97 VANA matured gain moved into a bonded position and exited early is paid in full (before: forfeited).
+12
+
+NM-1052 - VANA STAKING - SECURITY REVIEW
+6.6
+[Medium] Reward distribution weight can be increased by settling rewards early
+File(s): /rewardSplitter/RewardSplitterImplementation.sol, /vanaPoolEntity/VanaPoolEntityImplementation.sol
+Description: A governance-funded budget is split across entities by the distribute(...)
+function from the RewardSplitter con-
+tract, in proportion to the stake-seconds each entity accrued since the previous round. Stake-seconds are the integral of an entity’s
+activeRewardPool over time, and the splitter’s documentation states that the design prevents a third party from skewing the split.
+The quantity being integrated is also the quantity that reward settlement increases. The processRewards(...) function from the VanaPool
+Entity contract moves value from the locked pool into the active pool, and it carries no access control at all.
+1
+// @audit-issue This function is permissionless and raises the value that the
+2
+// stake-seconds metric integrates over time.
+3
+function processRewards(uint256 entityId) public override whenNotPaused {
+4
+// ...
+5
+entity.lockedRewardPool -= toDistribute;
+6
+entity.activeRewardPool += delegatorReward;
+7
+// ...
+8
+}
+An entity that settles its pending rewards at the start of a distribution round therefore carries an elevated pool for the whole round and
+accrues more stake-seconds than an otherwise identical entity that settles at the end, even though both hold the same delegated stake
+and receive the same rewards. Anyone may trigger the settlement for any entity, so the advantage costs only gas and can be taken every
+round.
+The effect is not marginal. A proof of concept with two entities that are identical in stake, locked rewards and timing, differing only in when
+their pending rewards are realised, splits a 100 ether budget 66.655562958027981345 ether to 33.344437041972018654 ether, a two-to-one
+division of a budget that should have been shared equally.
+Recommendation(s): Consider weighting the distribution by delegated principal rather than by the reward-inclusive pool, for example by
+maintaining a separate accumulator that is updated only when stake enters or leaves an entity. Consider also reviewing the documented
+claim that the split cannot be skewed, since it currently addresses only attempts to reduce another entity’s weight and not attempts to raise
+[...excerpt ends]"
+CB-101,FR-234,Reward distribution weight can be increased by settling rewards early,Nethermind__NM0451-1052-FINAL_Vana_Staking.pdf,Nethermind,vana,2026-09-29,yes,yes,2026-09,Medium,"NM-1052 - VANA STAKING - SECURITY REVIEW
+6.6
+[Medium] Reward distribution weight can be increased by settling rewards early
+File(s): /rewardSplitter/RewardSplitterImplementation.sol, /vanaPoolEntity/VanaPoolEntityImplementation.sol
+Description: A governance-funded budget is split across entities by the distribute(...)
+function from the RewardSplitter con-
+tract, in proportion to the stake-seconds each entity accrued since the previous round. Stake-seconds are the integral of an entity’s
+activeRewardPool over time, and the splitter’s documentation states that the design prevents a third party from skewing the split.
+The quantity being integrated is also the quantity that reward settlement increases. The processRewards(...) function from the VanaPool
+Entity contract moves value from the locked pool into the active pool, and it carries no access control at all.
+1
+// @audit-issue This function is permissionless and raises the value that the
+2
+// stake-seconds metric integrates over time.
+3
+function processRewards(uint256 entityId) public override whenNotPaused {
+4
+// ...
+5
+entity.lockedRewardPool -= toDistribute;
+6
+entity.activeRewardPool += delegatorReward;
+7
+// ...
+8
+}
+An entity that settles its pending rewards at the start of a distribution round therefore carries an elevated pool for the whole round and
+accrues more stake-seconds than an otherwise identical entity that settles at the end, even though both hold the same delegated stake
+and receive the same rewards. Anyone may trigger the settlement for any entity, so the advantage costs only gas and can be taken every
+round.
+The effect is not marginal. A proof of concept with two entities that are identical in stake, locked rewards and timing, differing only in when
+their pending rewards are realised, splits a 100 ether budget 66.655562958027981345 ether to 33.344437041972018654 ether, a two-to-one
+division of a budget that should have been shared equally.
+Recommendation(s): Consider weighting the distribution by delegated principal rather than by the reward-inclusive pool, for example by
+maintaining a separate accumulator that is updated only when stake enters or leaves an entity. Consider also reviewing the documented
+claim that the split cannot be skewed, since it currently addresses only attempts to reduce another entity’s weight and not attempts to raise
+one’s own.
+Status: Fixed
+Update from the client:
+Fixed in d7d52ff: the cross-entity split now weights entities by committed principal (stakedPrincipal, moved only on real stake/unstake/re-
+delegate) instead of the time-integral of activeRewardPool, and processRewards no longer checkpoints the accumulator — so vesting
+rewards early can no longer inflate an entity’s weight (verified by a two-identical-entities test where 20 days of aggressive settlement still
+yields a 50/50 split; 180/180).
+Update from Nethermind: the _checkpointPrincipalSeconds(...) is only called in updateEntityPool(...) and it is supposed to only
+include the principal amount and not rewards. After the pool is upgraded, but before a stake(...) or unstake(...) function call happens,
+if a reward is distributed by the entity owner, then stakedPrincipal will be set equal to activeRewardPool which will also contain the newly
+distributed rewards. This can only happen in legacy pools though.
+Update from the client: Confirmed and fixed (4d3fde0). A pre-upgrade entity’s stakedPrincipal is now seeded from min(totalShares,
+activeRewardPool) rather than activeRewardPool: rewards never mint shares, so nothing settled into the pool between the upgrade and
+the first stake/unstake can enter the seed, and the share supply is a lower bound on principal (because a deposit of v VANA at price
+p
+1 mints v/p
+v shares, the share supply is a lower bound on principal; it can only under-weight a legacy pool). A permissionless
+checkpointPrincipal(entityId) lets the upgrade procedure seed legacy entities immediately, closing the window itself. Tests: 400 shares
+against a 500 pool seed 400 (before: 500); two entities with equal share supply and 1000× different pool values seed identically.
+13
+
+NM-1052 - VANA STAKING - SECURITY REVIEW
+6.7
+[Medium] Rounding dust left by the final unstake disables an entity
+File(s): /vanaPoolEntity/VanaPoolEntityImplementation.sol
+Description: Staking positions in an entity are accounted as shares. The entityShareToVana(...) and vanaToEntityShare(...) func-
+tions from the VanaPoolEntity contract convert between shares and VANA and are intended to be reciprocals of one another. Both must
+also address the case of an empty entity, where the next depositor is expected to bootstrap the pool at a 1:1 price.
+The two functions treat this case differently. The first guards on the share supply, whereas the second guards on the size of the pool.
+1
+function entityShareToVana(uint256 entityId) external view override returns (uint256) {
+2
+Entity storage entity = _entities[entityId];
+3
+4
+return entity.totalShares > 0
+5
+? (entity.activeRewardPool * 1e18) / entity.totalShares
+6
+: 1e18;
+7
+}
+The reciprocal branches on activeRewardPool instead, so for an entity that holds VANA but has no shares outstanding it returns 0 rather
+than the bootstrap price.
+1
+function vanaToEntityShare(uint256 entityId) external view override returns (uint256) {
+2
+Entity storage entity = _entities[entityId];
+3
+4
+// @audit-issue This branches on the pool size rather than the share supply.
+5
+return entity.activeRewardPool > 0
+6
+? (entity.totalShares * 1e18) / entity.activeRewardPool
+7
+: 1e18;
+8
+}
+This state can be reached when the last holder exits. The VANA returned to them is computed through two successive floor divisions,
+so whenever the share supply does not divide the pool exactly, a remainder is left behind while the share count reaches zero. With an
+activeRewardPool of 4e18 against a totalShares of 3e18, the final exit returns 3999999999999999999 and strands 1 wei.
+From that point on the entity is unusable. Every call to the staking function computes zero shares issued and reverts, and every redel-
+egation into the entity reverts on its slippage check, so the share supply can never become non-zero again. The activeRewardPool is
+decreased through paths that now revert, so the entity remains listed as active while its lockedRewardPool, including every payout the
+reward splitter routes to it, is unrecoverable.
+Recommendation(s): Consider making both conversion functions agree on a single definition of the empty entity, keyed on the share sup-
+ply, so that an entity holding residual VANA with no shares outstanding still quotes a bootstrap price. Additionally, consider sweeping any
+residual activeRewardPool back into the locked pool at the moment the share supply reaches zero, so that the dust does not accumulate
+against an entity with no holders.
+Status: Fixed
+Update from the client: Update from the client: Fixed (f3c72e3 zero-share price floor; 0d83fc5 single-division vanaToShares). Both
+conversions key the empty entity on the share supply and quote the 1:1 bootstrap price. Dedicated test added in 770b9ae (DustBoot-
+[...excerpt ends]"
+CB-060,FR-193,TuoVault::withdraw burns positions while zero-valued LP and token residues remain,Cyfrin__2026-09-28-cyfrin-tuo-v2.0.pdf,Cyfrin,tuo,2026-09-10,no,no,2026-09,Low Risk,"Cyfrin: Verified.
+7.3.4
+TuoVault::withdraw burns positions while zero-valued LP and token residues remain
+Description: A full TuoVault::withdraw calculates settlement NAV across idle balances and open LPs but debits
+only idle USDC before deactivating the position and burning its NFT. The close can therefore succeed with a
+non-USDC balance or LP only when that asset's TWAP value rounds to zero.
+The closing branch does not clear these residual balances, unwind the LPs, or delete their registry entries. Be-
+cause every recovery function requires an active position, the assets become unreachable after the NFT burns.
+Impact: Sub-quotation token balances and LP principal can be permanently stranded when an ordinary withdrawal
+closes the position. Although their value is initially below the valuation threshold, a stranded LP may subsequently
+accrue fees or gain value, and its registry entries continue pointing to the burned position.
+Proof of Concept:
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+import {INonfungiblePositionManager} from
+""../../src/interfaces/external/INonfungiblePositionManager.sol"";
+,!
+import {ITuoVault} from ""../../src/interfaces/ITuoVault.sol"";
+import {PositionValuation} from ""../../src/libraries/PositionValuation.sol"";
+import {VaultTestBase} from ""../utils/VaultTestBase.sol"";
+/// @dev The closing branch of `withdraw` sets `p.active = false` and burns the NFT while
+///
+`p.lpTokenIds` is untouched and the non-USDC idle legs are never swept. A
+///
+full-share debit only succeeds while those legs value to zero, and a
+///
+sub-quotation LP does exactly that, so the close executes with the LP still
+///
+minted and custodied by the vault. `_removeLpToken` is reached only from
+///
+`_closeLp`, which no closing-withdraw path calls, so the registry keeps
+///
+pointing at a burned position
+contract ClosingWithdrawStrandsDustLp is VaultTestBase {
+function test_PoC_DustLpSurvivesTheBurnWithNoReachableConsumer() public {
+uint256 id = _depositUsdc(alice, 20_000e6);
+_keeperSwapToWeth(id, 5_000e6, 5_000e6);
+// A sub-quotation LP: real liquidity, but `getAmountsForLiquidity` at the mean
+// tick floors both legs to zero, so it contributes nothing to settlement NAV
+(uint256 amount0, uint256 amount1) = _pair(1, 1);
+vm.prank(keeper);
+(uint256 lpId, uint128 liquidity) = vault.mintLp(id, address(wethPool), -600, 600, amount0,
+amount1);
+,!
+assertGt(liquidity, 0, ""the LP holds real liquidity"");
+assertEq(
+PositionValuation.valueLpUsdc(
+INonfungiblePositionManager(address(npm)), address(wethPool), lpId, address(usdc)
+),
+0,
+""and books at zero against the mean tick""
+);
+// Back to a single asset so the closing debit can be funded, which is the state
+// the close requires anyway
+uint256 wethIdle = vault.idleBalance(id, address(weth));
+vm.prank(keeper);
+vault.swapIdle(
+id, address(weth), address(usdc), wethIdle, 0, _swapData(address(weth), address(usdc),
+wethIdle, wethIdle)
+,!
+);
+47
+
+assertEq(vault.idleBalance(id, address(weth)), 0, ""no non-USDC idle left"");
+assertEq(vault.settlementNav(id), vault.idleBalance(id, address(usdc)), ""NAV is the USDC leg
+alone"");
+,!
+// The close succeeds with the LP still open
+vm.startPrank(alice);
+vault.requestWithdraw(id, 10_000);
+vault.withdraw(id, address(usdc), 0, """");
+vm.stopPrank();
+assertFalse(vault.getPosition(id).active, ""position closed"");
+vm.expectRevert();
+nft.ownerOf(id);
+// The LP is still minted, still custodied by the vault, and the registry still
+// attributes it to the position that no longer exists
+(,,,,,,, uint128 liveLiquidity,,,,) = npm.positions(lpId);
+assertEq(liveLiquidity, liquidity, ""the LP survived the close untouched"");
+assertEq(vault.lpOwnerOf(lpId), id, ""stale registry entry points at a burned position"");
+assertEq(vault.lpPoolOf(lpId), address(wethPool), ""and so does the pool entry"");
+assertEq(vault.getPosition(id).lpTokenIds.length, 1, ""the position's LP array was never
+cleared"");
+,!
+// Whatever the stranded LP goes on to earn, no consumer can ever collect it: every
+// post-close entry point routes through `_activePosition`. The harness has no real
+// fee mechanism, so the accrual below is injected rather than earned, and its size
+// is arbitrary - what the assertions establish is reachability, not magnitude
+npm.accrueFees(lpId, 25e6, 25e6);
+vm.prank(keeper);
+vm.expectRevert(ITuoVault.PositionNotActive.selector);
+vault.burnLp(id, lpId);
+vm.prank(alice);
+vm.expectRevert(ITuoVault.PositionNotActive.selector);
+vault.emergencyWithdraw(id);
+assertGt(
+PositionValuation.valueLpUsdc(
+INonfungiblePositionManager(address(npm)), address(wethPool), lpId, address(usdc)
+),
+0,
+""whatever it holds sits in NonfungiblePositionManager custody with nobody able to reach it""
+);
+}
+}
+Recommended Mitigation: Before a full ordinary close, require the position's LP registry to be empty. This
+matches the existing keeper-serviced settlement lifecycle and avoids adding another potentially unbounded LP
+unwind to withdraw.
+Also clear and transfer every remaining non-USDC idle balance to the owner in kind before completing the close.
+Because a full withdrawal debited the complete settlement NAV from idle USDC, any such residual balance neces-
+sarily had a zero TWAP quote and requires no additional performance fee. Clear the idle accounting before each
+external token transfer.
+Tuo: Fixed in commit 758ffb8.
+Cyfrin: Verified.
+7.3.5
+TuoVault::_reduceKeeperLoss can leave loss usage above its reduced ceiling
+Description: TuoVault::_reduceKeeperLoss reduces stored keeper loss using floor division, which rounds
+the residual up.
+PerformanceFee::reducedBasis independently reduces the position's basis, after which
+48
+
+TuoVaultViews::_keeperLossCeiling rounds 150 bps of that new basis down.
+These rounding operations can leave the stored loss one raw USDC unit above its new ceiling. The next loss-
+making swap then reverts in TuoVault::_chargeKeeperLoss until decay creates sufficient headroom.
+Impact: Loss-making keeper swaps on the residual position can be temporarily unavailable. The discrepancy is
+at most one raw USDC unit, does not block owner withdrawals or value-neutral keeper actions, and disappears
+through the existing linear decay.
+Proof of Concept:
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+import {Test} from ""forge-std/Test.sol"";
+contract ResidualLossExceedsReducedCeiling is Test {
+function test_WithdrawalLeavesLossAboveItsNewCeiling() public pure {
+uint256 basis = 2_500_000_067;
+uint256 storedLoss = (basis * 150) / 10_000;
+uint16 sharesBps = 9_999;
+uint256 newBasis = basis - (basis * sharesBps) / 10_000;
+uint256 newCeiling = (newBasis * 150) / 10_000;
+uint256 newLoss = storedLoss - (storedLoss * sharesBps) / 10_000;
+assertEq(newBasis, 250_001);
+assertEq(newCeiling, 3_750);
+assertEq(newLoss, 3_751);
+assertGt(newLoss, newCeiling);
+}
+}
+Recommended Mitigation: After reducing the stored loss, clamp it to the ceiling derived from the already-reduced
+basis:
+-b.lossUsdc = uint96(loss - (loss * sharesBps) / TuoConstants.BPS_DENOMINATOR);
++uint256 reducedLoss = loss - (loss * sharesBps) / TuoConstants.BPS_DENOMINATOR;
+[...excerpt ends]"
+CB-052,FR-185,TuoVault::withdraw permits zero-output exit swaps for tokens without valuation pools,Cyfrin__2026-09-28-cyfrin-tuo-v2.0.pdf,Cyfrin,tuo,2026-09-10,no,no,2026-09,Medium Risk,"Cyfrin: Verified.
+7.2.3
+TuoVault::withdraw permits zero-output exit swaps for tokens without valuation pools
+Description: TuoVaultViews::_exitFloor returns zero when the selected withdrawal token has no valuation
+pool.
+If the caller also supplies minTokenOut == 0, TuoVault::withdraw executes the exit swap without any
+24
+
+minimum output.
+This affects configured deposit tokens such as ARB, DAI, and USDC.e, which have no configured valuation pool.
+Because supported aggregators encode the recipient in caller-supplied calldata, a malicious frontend can direct
+the output elsewhere. The router then measures zero output, but its slippage check passes because the effective
+minimum is also zero.
+Impact: A malicious frontend can cause a user's entire net withdrawal to be transferred to another recipient
+while withdraw returns zero, closes the position, and burns the NFT. The transaction is signed by the user, but it
+bypasses the vault-derived floor specifically intended to protect users from unsafe frontend parameters.
+Proof of Concept:
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+import {IERC20} from ""@openzeppelin/contracts/token/ERC20/IERC20.sol"";
+import {SafeERC20} from ""@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"";
+import {MockERC20} from ""../mocks/MockERC20.sol"";
+import {VaultTestBase} from ""../utils/VaultTestBase.sol"";
+/// @dev Stand-in for an aggregator route whose recipient is not the router. Both 0x
+///
+AllowanceHolder and 1inch v6 take the recipient from the calldata, and the router
+///
+measures its output as its own balance delta, so a route built with any other
+///
+recipient behaves exactly like this
+contract RecipientRoute {
+using SafeERC20 for IERC20;
+function fill(address tokenIn, address tokenOut, uint256 spendAmount, uint256 payoutAmount, address
+recipient)
+,!
+external
+{
+IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), spendAmount);
+MockERC20(tokenOut).mint(recipient, payoutAmount);
+}
+}
+/// @dev `_exitFloor` returns zero for a deposit token with no allowlisted pool, so the
+///
+exit swap for such a token is bounded only by the caller-supplied `minTokenOut`
+///
+In the intended Arbitrum One configuration that is three of the allowlisted
+///
+withdrawal tokens: ARB, DAI and bridged USDC.e, and `dai` mirrors them here
+contract ExitSwapWithoutVaultFloor is VaultTestBase {
+function test_PoC_NoVaultFloorForAPoollessWithdrawalToken() public {
+RecipientRoute route = new RecipientRoute();
+vm.prank(treasury);
+vault.addAggregator(address(route));
+assertTrue(vault.isDepositToken(address(dai)), ""allowlisted as a withdrawal token"");
+assertEq(vault.valuationPoolOf(address(dai)), address(0), ""but it has no allowlisted pool"");
+uint256 id = _depositUsdc(alice, 25_000e6);
+vm.prank(alice);
+vault.requestWithdraw(id, 10_000);
+bytes memory swapData = abi.encode(
+address(route),
+abi.encodeCall(RecipientRoute.fill, (address(usdc), address(dai), 25_000e6, 25_000e18,
+mallory))
+,!
+);
+uint256 vaultUsdcBefore = usdc.balanceOf(address(vault));
+// minTokenOut of zero is the whole bound, because the vault-derived floor is zero
+25
+
+vm.prank(alice);
+uint256 tokenAmountOut = vault.withdraw(id, address(dai), 0, swapData);
+assertEq(tokenAmountOut, 0, ""the router's balance-delta check measures nothing"");
+assertEq(dai.balanceOf(alice), 0, ""the owner receives nothing"");
+assertEq(dai.balanceOf(mallory), 25_000e18, ""the proceeds went to the calldata's recipient"");
+assertEq(vaultUsdcBefore - usdc.balanceOf(address(vault)), 25_000e6, ""the whole exit left the
+vault"");
+,!
+assertEq(nft.balanceOf(alice), 0, ""and the position is closed"");
+}
+}
+Recommended Mitigation: Require every non-USDC withdrawal token to have a valuation pool by reverting
+instead of returning a zero floor:
+function _exitFloor(address withdrawalToken, uint256 netUsdc) internal view returns (uint256) {
+address pool = _valuationPools[withdrawalToken];
+-
+if (pool == address(0)) return 0;
++
+if (pool == address(0)) revert TokenNotAllowlisted(withdrawalToken);
+int24 meanTick = PoolTwap.checkDeviationAndMeanTick(pool);
+return _applySlippageFloor(PoolTwap.quoteFromUsdcAtTick(meanTick, withdrawalToken, address(USDC),
+netUsdc));
+,!
+}
+This keeps tokens without valuation pools available for entry while restricting swap-based withdrawals to tokens
+for which the vault can enforce a meaningful floor. Users can always withdraw in USDC. Update the interface
+documentation to describe poolless deposit tokens as entry-only.
+Tuo: Fixed in commit 2de2a94.
+Cyfrin: Verified.
+7.2.4
+TuoVault::mintLp
+and
+USDC-spending
+TuoVault::swapIdle
+calls
+can
+invalidate
+an
+armed
+withdrawal
+Description: An armed withdrawal request blocks TuoVault::bridgeToHl and position top-ups, but it does not
+restrict TuoVault::mintLp or TuoVault::swapIdle. A keeper can therefore spend a position's idle USDC after its
+owner has requested withdrawal.
+TuoVault::withdraw calculates grossUsdc from settlement NAV, which continues to include the newly purchased
+token or LP, but funds that amount exclusively from idle USDC. A keeper can place the complete idle USDC
+balance into a single-sided LP, leaving NAV unchanged while making every withdrawal share unfundable through
+TuoVault::_debitIdle.
+Impact: A compromised or misconfigured keeper can invalidate an otherwise serviceable withdrawal with one
+action. The owner must then wait for keeper cooperation or replacement, or terminate the position through Tuo-
+Vault::emergencyWithdraw, which is 100%-only, pays in kind, and closes LPs without a value floor.
+The action does not directly transfer the owner's funds, and the emergency path remains immediately available
+when no margin is outstanding. However, the keeper can indefinitely remove the protected partial and full settle-
+ment paths while retaining its role, contrary to the request's purpose of initiating an unwind.
+Proof of Concept:
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+import {ITuoVault} from ""../../src/interfaces/ITuoVault.sol"";
+import {VaultTestBase} from ""../utils/VaultTestBase.sol"";
+/// @dev `bridgeToHl` is the only keeper entry point that refuses to act while a
+///
+withdrawal request is armed. `mintLp` does not, and the payout is funded from
+///
+idle USDC while NAV counts the LP, so one mint puts the protected exit out of
+26
+
+///
+reach for as long as the keeper declines to burn
+contract KeeperStrandsProtectedExit is VaultTestBase {
+function test_PoC_MintLpDisablesTheProtectedExit() public {
+uint256 id = _depositUsdc(alice, 25_000e6);
+vm.prank(alice);
+vault.requestWithdraw(id, 10_000);
+// A bridge is refused while the request is armed
+vm.prank(keeper);
+vm.expectRevert(ITuoVault.WithdrawalRequestPending.selector);
+vault.bridgeToHl(id, 5_000e6, hlOperator);
+// A mint is not. The range sits far below spot, so it is funded entirely in USDC,
+// stays untraded for as long as spot remains above it, and holds its value at the
+// TWAP tick
+(uint256 amount0, uint256 amount1) = _pair(25_000e6, 0);
+vm.prank(keeper);
+vault.mintLp(id, address(wethPool), -20_000, -19_800, amount0, amount1);
+[...excerpt ends]"
+CB-213,FR-371,WHYPE PM executor is granted the system- wide HANDLER_ROLE where no existing role is cor- rectly scoped,Sherlock__2026.09.29_-_Final_-_Delpho_Collaborative_Audit_Report_1790693081.pdf,Sherlock,delpho,2026-09-03,no,no,2026-09,Low,"17
+
+Issue L-2: WHYPE PM executor is granted the system-
+wide HANDLER_ROLE where no existing role is cor-
+rectly scoped [RESOLVED]
+Source:
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/issues/70
+Summary
+To let the new WHYPE-market executor pay yield into the shared DelphoRewardDistribut
+or, the migration grants it HANDLER_ROLE on the stable ConfigProvider. That is the
+broadest hot role in the system: 28 onlyHandler entry points across every stable and
+deprecated executor, plus swapAndDistribute. It needs authority over exactly one
+function, notifyRewardAmount.
+The obvious narrower substitute is also wrong. EXECUTOR_ROLE satisfies DelphoPSM.onlyExe
+cutor, which would let a WHYPE-market executor pull USDC from the PSM and break the
+rollout's stated market isolation.
+Vulnerability Detail
+DelphoRewardDistributor resolves roles against its own provider, which after migration is
+the stable one, so a WHYPE-market executor needs a stable-provider role to pay in. The
+gate accepts either role:
+require(config.isHandler(msg.sender)||config.isExecutor(msg.sender) ,
+DRD_UNAUTHORIZED());
+,→
+DelphoConfigProviderMigration.run() and its Safe-calldata twin _buildTxList() satisfy
+it with the broader one:
+IRoleAdmin(NEW_USDC_CONFIG_PROVIDER).grantRole(stableConfig.HANDLER_ROLE(),
+NEW_WHYPE_PM_EXECUTOR);
+,→
+The intent is narrow: the assertion in _postMigrationChecks() is labelled ”WHYPE PM
+reward role missing”. But every executor's onlyHandler modifier resolves isHandler
+through the stable provider, so the grant confers authority over 28 functions including cl
+awBack, transferFundsToVault, executeCoreAction and the swap extension.
+Substituting EXECUTOR_ROLE trades one over-grant for a worse one. DelphoPSM.onlyExecut
+or resolves against the PSM's own provider, which is the stable one, and the USDC-only
+allowlist gates the collateral, not the caller. A WHYPE executor could then call deployRes
+erves(USDC, amount) and pull USDC out of fundsForExecutor, violating the scope
+document's requirement that a WHYPE executor cannot pull from the PSM.
+18
+
+Not exploitable in the target commit. NEW_WHYPE_PM_EXECUTOR is a contract with no
+arbitrary-target call: _sendCoreAction forwards only to cfg.coreWriterAddress(), and De
+lphoWhypePMExecutor does not inherit DelphoExecutorSwapExtension. The authority is
+dormant until that executor gains a swap extension, an adapter callback, or any
+function forwarding caller-supplied calldata.
+Impact
+Standing authority over 28 stable-market handler entry points where one function is
+needed, on a live provider. Hot-role abuse is in scope per the trust model, unlike admin
+compromise. No funds are at risk today, hence Low, but the blast radius is unnecessary,
+undocumented, cross-market, and one ordinary feature addition from being live. It also
+silently widens effective HANDLER_ROLE membership, which the hardcoded role replay and
+single-member post-migration checks will not surface.
+Code Snippet
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/script/prod/upgrade/02_
+DelphoMigrate.s.sol#L197
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/src/DelphoRewardDistribu
+tor.sol#L38
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/src/core/DelphoPSM.sol#
+L89
+Tool Used
+Manual Review
+Recommendation
+Add a dedicated REWARD_NOTIFIER_ROLE to BaseConfig, check it in notifyRewardAmount,
+and grant only that to each market's executors:
+-require(config.isHandler(msg.sender)||config.isExecutor(msg.sender) ,
+DRD_UNAUTHORIZED());
+,→
++require(config.isRewardNotifier(msg.sender), DRD_UNAUTHORIZED());
+This needs no storage changes on either side: role identifiers are compile-time constants,
+both providers are fresh deployments, and the distributor's layout is unchanged. It does
+add a fourth live-proxy upgrade, since DelphoRewardDistributor is currently only
+19
+
+repointed, so sequence the upgrade in the same batch as the grant or yield forwarding
+reverts in the interval.
+If that upgrade cannot be accommodated, keep HANDLER_ROLE as an accepted risk,
+document it in the scope document's trust model, and add a standing rule that DelphoWh
+ypePMExecutor must never gain an arbitrary-target call, since that property is the only
+thing keeping the grant inert.
+20
+
+Issue L-3: DelphoRouterV2 re-implements six V1 func-
+tions that are already reusable, four needing only a
+visibility change and two needing nothing at all [RE-
+SOLVED]
+Source:
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/issues/71
+Summary
+Every helper in DelphoRouter is declared private, which in Solidity is not accessible to a
+derived contract. DelphoRouterV2 inherits DelphoRouter but consequently cannot call any
+of them, so it re-implements four internal helpers. It additionally duplicates two external
+self-call wrappers that were already inherited and callable exactly as they stand.
+All of the V1 originals are market-agnostic: they take their dependencies as parameters
+and reference no ConfigProvider. Changing private to internal on four of them, and
+simply deleting the two redundant wrappers with no behavioural change.
+Vulnerability Detail
+There is no behavioural difference. The one apparent exception is not one: V1's if (usdvT
+oMint == 0) return; is dead code, because the preceding if (debt >= targetDebt) ret
+urn; already guarantees usdvToMint >= 1.
+The four internal helpers are reusable because each receives everything it needs as an
+argument. _deLeverageUser and _reLeverageUser take a DelphoContracts struct plus the
+caps, _handleRemainingCollateralAfterRedemption takes the vault, and _validateLength
+s is pure. None touches delphoConfigProvider or calls _configProvider(), so none is
+bound to a single market.
+The two external wrappers require no change at all. Both V1 wrappers are external and
+therefore inherited, so this.deLeverageUserExternal is directly callable from V2, and the
+msg.sender != address(this) guard is satisfied by V2's own self-call because both
+resolve to the same proxy address. Neither wrapper is declared in IDelphoRouter or IDelp
+hoRouterV2, so deleting the V2 copies changes no interface and no interfaceId.
+_handleDeposit is the sole genuine exception and illustrates the pattern. It resolves the
+provider internally with _configProvider(), hardcoding the default market, which is why
+V2 needed a separate _handleMarketDeposit that accepts a provider argument. Unifying
+that one requires a signature change, not just a visibility change.
+21
+
+Impact
+Duplicated code.
+Code Snippet
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/src/periphery/DelphoRout
+erV2.sol#L320
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+[...excerpt ends]"
+CB-212,FR-370,"A system address must never be config- ured for USDC, because both plausible values silently destroy funds",Sherlock__2026.09.29_-_Final_-_Delpho_Collaborative_Audit_Report_1790693081.pdf,Sherlock,delpho,2026-09-03,no,no,2026-09,Low,"14
+
+Issue L-1: A system address must never be config-
+ured for USDC, because both plausible values silently
+destroy funds [RESOLVED]
+Source:
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/issues/69
+Summary
+USDC has no HyperCore system-address bridge route. Its only valid path to Core is coreD
+epositWalletUsdc().deposit(amount, destinationDex), and DelphoBaseExecutor._transf
+erCollateralToCore correctly routes it through a dedicated branch that never reads syst
+emAddress.
+The generic else branch protects against a mis-route with if (systemAddress == addres
+s(0)) revert DEB_INVALID_SYSTEM_ADDRESS(). Configuring any value for USDC disarms
+that guard, and both plausible values destroy funds: the initializer hardcodes the
+deposit-wallet contract, and the live provider holds a codeless address.
+Vulnerability Detail
+The repo's own vendored HyperEVM library is explicit. CoreWriterLib.bridgeToCore
+computes getSystemAddress(token) and then deliberately refuses to use it for USDC:
+if (HLConstants.isUsdc(token)) {
+IERC20(HLConstants.usdc()).approve(address(coreDepositWallet), evmAmount);
+coreDepositWallet.deposit(evmAmount, uint32(type(uint32).max));
+} else if (isHype(token)) { ... } else {
+IERC20(tokenAddress).safeTransfer(systemAddress, evmAmount);
+}
+PrecompileLib.getTokenIndex also short-circuits USDC before consulting the token
+registry, indicating USDC is not a registry-linked token with an EVM system-address
+route.
+Both configurable values are unsafe as a safeTransfer destination:
+• 0x2000000000000000000000000000000000000000, the current live value, has zero
+bytes of code. A transfer succeeds at the ERC-20 level, nothing credits a
+HyperCore balance, and there is no owner or admin. Funds are permanently lost.
+• 0x6B9E773128f453f5c2C60935Ee2DE2CBc5390A24, the initializer default, is the deposit
+wallet itself: a transparent upgradeable proxy whose admin is not Delpho. A plain s
+afeTransfer bumps its balance without invoking deposit(), so there is no Core
+credit, no event and no attribution. The funds merge into its balance and recovery
+requires Hyperliquid's cooperation.
+15
+
+The USDC branch is selected by else if (token == cfg.stablecoinToken(StableCoinTyp
+e.USDC)). Anything that makes USDC miss that comparison, such as stablecoinToken(US
+DC) being unset on a partially configured provider or pointed at a different address,
+drops USDC into the generic branch, which then reads the configured system address
+and sends there.
+Note this is not migration-specific: the live provider already returns 0x20000000000000000
+00000000000000000000000 for systemAddress(USDC), so the guard is disarmed in
+production today.
+Impact
+The guard that exists to convert a USDC mis-route into a clean revert is disabled by
+configuration.
+Code Snippet
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/src/configurators/base/D
+elphoHyperCoreConfig.sol#L52
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/src/executor/base/Delph
+oBaseExecutor.sol#L179
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/script/prod/upgrade/bas
+e/BaseConfigProviderUpgrade.s.sol#L307
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/blob/4e11
+694f7a029115f3fdb01bd98b6425744c4bd3/delpho_contracts/script/prod/nonStable/02
+_DeploymentScript.s.sol#L165
+Tool Used
+Manual Review.
+Recommendation
+Leave systemAddress(USDC) at address(0) everywhere, so a mis-route reverts. Four write
+sites must stop setting it:
+1. DelphoHyperCoreConfig initializer: delete the _systemAddresses[USDC] assignment
+and its SystemAddressUpdated event. Keep the USDT entry.
+2. BaseConfigProviderUpgrade._syncStablecoinConfig: it is invoked for StableCoinTy
+pe.USDC and calls setSystemAddress(oldToken, oldSystemAddress), so it will copy
+16
+
+the live value onto the new provider. Skip the system-address half for USDC and
+sync only stablecoinToken. Its existing early return on oldSystemAddress == address
+(0) already cooperates once the value is zero upstream.
+3. script/prod/nonStable/02_DeploymentScript: remove the setSystemAddress(USDC,
+USDC_SYSTEM_ADDRESS) call.
+4. script/prod/stable/02_DeploymentScript: remove the equivalent call.
+17
+
+Issue L-2: WHYPE PM executor is granted the system-
+wide HANDLER_ROLE where no existing role is cor-
+rectly scoped [RESOLVED]
+Source:
+https://github.com/sherlock-audit2/2026-08-delpho-update-aug-27th-2026/issues/70
+Summary
+To let the new WHYPE-market executor pay yield into the shared DelphoRewardDistribut
+or, the migration grants it HANDLER_ROLE on the stable ConfigProvider. That is the
+broadest hot role in the system: 28 onlyHandler entry points across every stable and
+deprecated executor, plus swapAndDistribute. It needs authority over exactly one
+function, notifyRewardAmount.
+The obvious narrower substitute is also wrong. EXECUTOR_ROLE satisfies DelphoPSM.onlyExe
+cutor, which would let a WHYPE-market executor pull USDC from the PSM and break the
+rollout's stated market isolation.
+Vulnerability Detail
+DelphoRewardDistributor resolves roles against its own provider, which after migration is
+the stable one, so a WHYPE-market executor needs a stable-provider role to pay in. The
+gate accepts either role:
+require(config.isHandler(msg.sender)||config.isExecutor(msg.sender) ,
+DRD_UNAUTHORIZED());
+,→
+DelphoConfigProviderMigration.run() and its Safe-calldata twin _buildTxList() satisfy
+it with the broader one:
+IRoleAdmin(NEW_USDC_CONFIG_PROVIDER).grantRole(stableConfig.HANDLER_ROLE(),
+NEW_WHYPE_PM_EXECUTOR);
+,→
+The intent is narrow: the assertion in _postMigrationChecks() is labelled ”WHYPE PM
+reward role missing”. But every executor's onlyHandler modifier resolves isHandler
+through the stable provider, so the grant confers authority over 28 functions including cl
+awBack, transferFundsToVault, executeCoreAction and the swap extension.
+Substituting EXECUTOR_ROLE trades one over-grant for a worse one. DelphoPSM.onlyExecut
+or resolves against the PSM's own provider, which is the stable one, and the USDC-only
+allowlist gates the collateral, not the caller. A WHYPE executor could then call deployRes
+erves(USDC, amount) and pull USDC out of fundsForExecutor, violating the scope
+document's requirement that a WHYPE executor cannot pull from the PSM.
+18
+
+Not exploitable in the target commit. NEW_WHYPE_PM_EXECUTOR is a contract with no
+arbitrary-target call: _sendCoreAction forwards only to cfg.coreWriterAddress(), and De
+lphoWhypePMExecutor does not inherit DelphoExecutorSwapExtension. The authority is
+dormant until that executor gains a swap extension, an adapter callback, or any
+function forwarding caller-supplied calldata.
+Impact
+Standing authority over 28 stable-market handler entry points where one function is
+needed, on a live provider. Hot-role abuse is in scope per the trust model, unlike admin
+[...excerpt ends]"
+CB-222,,requestRedeem(0) spender check is redun- dant cyclical-WM logic,Sherlock__2026.11.24_-_Final_-_Maple_Collaborative_Audit_Report_1795536657.pdf,Sherlock,maple,2026-09-07,no,yes,2026-11,Low,"12
+
+Issue L-4: requestRedeem(0) spender check is redun-
+dant cyclical-WM logic [RESOLVED]
+Source: https://github.com/sherlock-audit/2026-09-maple-sept-7th-2026/issues/53
+Summary
+V500 MaplePoolManager.requestRedeem still special-cases shares_ == 0 so any spender
+with a nonzero pool allowance can call requestRedeem(0, owner). On a cyclical
+withdrawal manager, addShares(0, owner) postpones that owner’s entire lockedShares
+balance. V500 pools use the queue WM, so the branch is dead leftover code.
+Vulnerability Detail
+The pool forwards the owner’s redeem request to the pool manager without reducing
+allowance when the share amount is zero:
+https://github.com/sherlock-audit/2026-09-maple-sept-7th-2026/blob/main/maple-la
+bs__pool-v2/contracts/MaplePool.sol#L235-L248
+if (msg.sender != owner_) {
+_decreaseAllowance(owner_, msg.sender, escrowShares_);
+}
+// ...
+IPoolManagerLike(manager).requestRedeem(escrowShares_, owner_, msg.sender);
+The pool manager then only requires a nonzero allowance for the zero-share case, and
+still calls addShares:
+https://github.com/sherlock-audit/2026-09-maple-sept-7th-2026/blob/main/maple-la
+bs__pool-v2/contracts/MaplePoolManager.sol#L336-L348
+function requestRedeem(uint256 shares_, address owner_, address sender_) external
+override whenNotPaused nonReentrant onlyPool {
+,→
+address pool_ = pool;
+require(ERC20Helper.approve(pool_, withdrawalManager, shares_),
+""PM:RR:APPROVE_FAIL"");
+,→
+if (sender_ != owner_ && shares_ == 0) {
+require(IPoolLike(pool_).allowance(owner_, sender_) > 0,
+""PM:RR:NO_ALLOWANCE"");
+,→
+}
+IWithdrawalManagerLike(withdrawalManager).addShares(shares_, owner_);
+13
+
+emit RedeemRequested(owner_, shares_);
+}
+On a cyclical withdrawal manager, addShares(0, owner) moves that owner’s existing
+locked shares to currentCycle + 2. A spender who was approved for any amount could
+postpone the owner’s locked exit without consuming allowance. V500 setWithdrawalMan
+ager only accepts a queue WM factory. The four upgraded pools (syrup USDC, syrup
+USDT, syrup USDG, secured lending USDC) all use FIFO queue WMs. Queue addShares(0)
+doesn't postpone locked shares, so the branch has no effect on in-scope upgraded pools.
+Impact
+Any spender with a leftover nonzero allowance can call requestRedeem(0, owner)
+without consuming that allowance. The Pool Manager still forwards addShares(0, owner)
+to the withdrawal manager. On a cyclical withdrawal manager that call postpones the
+owner’s entire lockedShares balance to currentCycle + 2. The owner misses their current
+exit window and waits two extra cycles to withdraw. In this specific case, the spender
+can't steal shares or assets, but they can delay an LP’s redemption indefinitely by
+repeating the call whenever a new window opens.
+Tool Used
+Manual Review
+Recommendation
+Consider removing the leftover branch:
+if (sender_ != owner_ && shares_ == 0) {
+require(IPoolLike(pool_).allowance(owner_, sender_) > 0, ""PM:RR:NO_ALLOWANCE"");
+}
+Discussion
+0xfarhaan
+Fixed in https://github.com/maple-labs/pool-v2/commit/a3f77cc4be6d100d02987b500
+059432cd6c36e3e
+0xsimao
+Fix in #a3f77cc looks good, the guard is no longer needed for queue managers, and the
+to be upgraded pools SyrupUSDC, SyrupUSDT, SyrupUSDG and MISL don't use the
+cyclical manager.
+14
+
+Section 2: Trust Assumptions
+• Strategy Delegates are trusted, like Pool Delegates. A delegate sets its own fee
+rate and can fund and operate its strategy even while it is impaired. The
+Operational Admin is trusted to reassign a delegate only for an agreed handover.
+• Liquidity bots and the Liquidity Router are trusted, Maple-operated infrastructure.
+Caps limit how much capital they move, not when. Strategy Manager redemptions
+have no queue and are assumed to be processed in the order they were requested.
+• Managed wallets are trusted, Maple-operated addresses. Capital deployed to a
+wallet leaves on-chain control, and the yield a wallet reports through realizeYield()
+is taken as given, within yieldCap and the hourly cooldown.
+• Impairments, loss recognition, yield cancellation and Sky's fallbackTout are
+discretionary operator inputs, used without proof or delay. They directly set the
+price at which pools exit a strategy.
+• Aave, Sky's LitePSM and sUSDS are assumed to account correctly. Positions are
+valued from their live balances and conversion rates, with no independent oracle.
+• Allocation yield is released into AUM linearly, so it goes to whoever holds Strategy
+Manager shares while it vests, not to whoever held them when it was earned. Bots
+are assumed to avoid funding or redeeming pools on a shared Strategy Manager
+while a large amount of yield is still vesting.
+• Strategy Managers and Pool Managers are assumed to be created only through the
+Strategy Deployer and Pool Deployer, with a non-zero bootstrap set in Globals. The
+upgrade procedure is assumed to drain the legacy Aave and Sky strategies before
+each pool is migrated.
+15
+
+Disclaimers
+Sherlock does not provide guarantees nor warranties relating to the security of the
+project.
+Usage of all smart contract software is at the respective users’ sole risk and is the users’
+responsibility.
+16
+"
+CB-220,,"MapleStrategyManager::convertToExitSh ares() rounds down, so it returns fewer shares than expected",Sherlock__2026.11.24_-_Final_-_Maple_Collaborative_Audit_Report_1795536657.pdf,Sherlock,maple,2026-09-07,no,yes,2026-11,Low,"5
+
+Issue L-1: MapleStrategyManager::convertToExitSh
+ares() rounds down, so it returns fewer shares than
+expected [RESOLVED]
+Source: https://github.com/sherlock-audit/2026-09-maple-sept-7th-2026/issues/50
+Summary
+MapleStrategyManager::convertToExitShares() returns how many shares are required to
+exit a given number of assets, rounding down. processRedemption() converts the sent
+shares by calling _convertToExitAssets(), which rounds down again, so the redemption
+pays out less than the input assets initially sent to MapleStrategyManager::convertToExit
+Shares().
+Vulnerability Detail
+As an example, with totalShares equal to 1_000_000e6 and exit assets of 1_500_000e6,
+converting 100 USDC gives:
+100e6 * 1_000_000e6 / 1_500_000e6 = 66_666_666
+and redeeming 66_666_666 shares pays 1 less than the initial 100e6 USDC:
+66_666_666 * 1_500_000e6 / 1_000_000e6 = 99_999_999
+Impact
+Bots calling MapleStrategyManager::convertToExitShares() expecting to get the shares
+required to redeem the input assets will get less assets when the redemption goes
+through.
+Code Snippet
+function _convertToExitShares(uint256 assets_, uint256 totalAssets_) internal view
+returns (uint256 shares_) {
+,→
+shares_ = _convertToShares(assets_, totalAssets_ -
+_unrealizedLosses(totalAssets_));
+,→
+}
+function _convertToShares(uint256 assets_, uint256 totalAssets_) internal view
+returns (uint256 shares_) {
+,→
+uint256 totalShares_ = totalShares;
+if (totalShares_ == 0) return assets_;
+6
+
+shares_ = assets_ * totalShares_ / totalAssets_;
+}
+https://github.com/sherlock-audit/2026-09-maple-sept-7th-2026/blob/main/maple-la
+bs__strategy-manager/contracts/MapleStrategyManager.sol#L398-L404
+Tool Used
+Manual Review
+Recommendation
+Round up in _convertToExitShares() using _divRoundUp():
+function _convertToExitShares(uint256 assets_, uint256 totalAssets_) internal view
+returns (uint256 shares_) {
+,→
+uint256 exitAssets_
+= totalAssets_ - _unrealizedLosses(totalAssets_);
+uint256 totalShares_ = totalShares;
+if (totalShares_ == 0) return assets_;
+shares_ = _divRoundUp(assets_ * totalShares_, exitAssets_);
+}
+Discussion
+0xfarhaan
+fixed in https://github.com/maple-labs/strategy-manager/commit/b0e729438be5dd9
+d960bb060476b2919d26e1459
+0xsimao
+Fix in #b0e7294 looks good, now whoever calls MapleStrategyManager::convertToExitSha
+res() gets the right amount of shares needed to redeem the sent assets.
+7
+
+Issue L-2: Cancelling a queued redemption after cash
+was sourced from an impaired strategy moves the
+exit loss onto the other LPs [RESOLVED]
+Source: https://github.com/sherlock-audit/2026-09-maple-sept-7th-2026/issues/51
+Summary
+MapleStrategyManager::processRedemption() burns shares at the exit rate without
+reducing impairedAssets, and MapleWithdrawalManager::removeSharesById() lets the
+request owner cancel at any point before processRedemptions(), so the value forfeited to
+fund one LP's exit is carried by every LP in the pool instead of the LP who requested it.
+Vulnerability Detail
+Pricing the strategy manager exit net of the impairment is intended: the pool giving up
+shares carries its part of the loss, and the queue then pays the exiting LP at the pool's
+own impaired exit price, so the forfeit lands on the LP whose request caused it. What is
+missing is any coupling between the two steps. processRedemption() is the Strategy
+Delegate's transaction on the strategy manager, processRedemptions() is the redeemer's
+transaction on the withdrawal manager, and neither checks that the request the cash
+was raised for still exists.
+uint256 assets_ = _convertToExitAssets(shares_, assetsUnderManagement());
+require(assets_ != 0,
+""MSM:PR:ZERO_ASSETS"");
+require(assets_ <= availableToWithdraw(), ""MSM:PR:NOT_ENOUGH_LIQUIDITY"");
+pendingSharesOf[poolManager_] -= shares_;
+totalPendingShares
+-= shares_;
+sharesOf[poolManager_] -= shares_;
+totalShares
+-= shares_;
+The shares are burned at the exit rate but the strategy's impairedAssets is unchanged, so
+the difference stays in the strategy and is spread over every remaining share, most of
+them the other pool's. That cross-pool transfer happens here, whatever the queue does
+afterwards.
+Between the two transactions the request owner can call removeSharesById(), which
+requires only that the caller owns the request. The pool then holds cash it sold strategy
+manager shares for at a discount, and the LP is still a depositor.
+Consider the following example. Strategy AUM 1000 with 200 impaired, Pool A holds 600
+shares and Pool B 400. Pool B redeems 100 shares to serve a request from an LP holding a
+8
+
+quarter of the pool:
+assets = 100 * (1000 - 200) / 1000 = 80
+20 stays in the strategy over the 900 remaining shares. At gross valuation Pool A is now 6
+00 * 920 / 900 = 613.33 and Pool B is 300 * 920 / 900 + 80 = 386.67. Exit valuations
+are unchanged, so nothing is visible while the impairment stands. The LP cancels and the
+impairment is later removed:
+• Pool A: 600, now 613.33.
+• Pool B: 400, now 386.67, with nobody having exited. The LP who requested pays
+3.33 of it, the other LPs pay 10.
+Without the cancel the exiting LP is paid 80 for shares worth 100 at gross and carries the
+whole 20. Only if the loss is realised at exactly the impaired amount is nobody worse off.
+Impact
+LPs who did not request a withdrawal pay, pro rata, for another LP's exit from an
+impaired strategy once the impairment is removed. The other pool's gain is the same
+with or without the cancel. Note: this requires the Strategy Delegate to process a
+redemption while the strategy is impaired, since bots and the router are already locked
+out while impairedAssets != 0.
+Code Snippet
+https://github.com/maple-labs/strategy-manager/blob/f278958671c319dc35d0e949981
+0c13cc18c60c2/contracts/MapleStrategyManager.sol#L250-L279
+https://github.com/maple-labs/withdrawal-manager-queue/blob/76a8ba7e0a7c51a312
+df395593c71ee01881b16e/contracts/MapleWithdrawalManager.sol#L279-L295
+https://github.com/maple-labs/withdrawal-manager-queue/blob/76a8ba7e0a7c51a312
+df395593c71ee01881b16e/contracts/MapleWithdrawalManager.sol#L205-L232
+Tool Used
+Manual Review
+Recommendation
+Consider processing the strategy manager redemption and the withdrawal queue in one
+transaction whenever liquidity is sourced from an impaired strategy.
+As discussed with the team, the operational admin will be able to process the
+redemption from an impaired strategy. It already passes the withdrawal manager's onlyR
+9
+
+edeemer, so it can batch processRedemption() and processRedemptions() in one
+transaction. The LP is then paid at the impaired price in the same transaction that burns
+the strategy manager shares, and there is no point at which the cash is sourced and the
+request can still be cancelled.
+processRedemptions() skips a cancelled request without reverting, so a cancel that lands
+just before the batch still leaves the strategy manager redemption executed. To rule
+that out, the operational admin can clear the requester's permission in MaplePoolPermiss
+ionManager before sending the batch and restore it after. removeSharesById() returns
+[...excerpt ends]"
+CB-038,FR-171,Sanctioned addresses can be registered as investor or special wallets in breach of OFAC FAQ42,Cyfrin__2026-09-11-cyfrin-securitize-evm-globaldenylist-v2.0.pdf,Cyfrin,securitize,2026-09-03,no,yes,2026-09,Low Risk,"Cyfrin: Verified.
+7.1.4
+Sanctioned addresses can be registered as investor or special wallets in breach of OFAC FAQ42
+Description: A wallet address enters the protocol through one of two independent registries, and neither consults
+the global denylist at any point. A globally denylisted address can therefore be registered as an investor wallet or
+assigned a special wallet type after it has been designated.
+Investor wallets are held by RegistryService. All three entry points are onlyExchangeOrAbove, except Wal-
+letRegistrar::registerWallet which is onlyOwnerOrIssuerOrAbove:
+1. RegistryService::addWallet - binds one address to an existing investor, and is the single internal choke
+point every investor wallet passes through
+2. RegistryService::updateInvestor - iterates its _wallets argument and calls addWallet for each address
+not already registered
+3. WalletRegistrar::registerWallet - delegates directly to updateInvestor
+Special wallets are held by WalletManager. All five entry points are onlyIssuerOrAbove and all funnel into the
+internal WalletManager::setSpecialWallet:
+4. WalletManager::addIssuerWallet - assigns type ISSUER
+5. WalletManager::addIssuerWallets - bulk form, capped at 30 addresses
+6. WalletManager::addPlatformWallet - assigns type PLATFORM
+7. WalletManager::addPlatformWallets - bulk form, capped at 30 addresses
+8. WalletManager::addExchangeWallet - assigns type EXCHANGE, and additionally requires the supplied owner
+to hold the exchange role
+Both choke points already perform registration-time validation, so the pattern of rejecting an ineligible address at
+the point of registration is established. RegistryService::addWallet rejects an address that already carries a
+special wallet type and rejects one holding a non-zero balance. WalletManager::setSpecialWallet rejects an
+address that already belongs to an investor and rejects a direct type change. The global denylist is simply absent
+from both sets of checks.
+The global denylist is intended to be a protocol-wide ban expressing sanctions designations.
+OFAC FAQ 42
+addresses this situation directly and treats onboarding, rather than transacting, as the prohibited act:
+What do I do if a person tries to open an account and the individual or entity's name is on OFAC's SDN
+List (or is otherwise a blocked person)? Do I open the account and then block the funds?
+A U.S. financial institution, its foreign branches, and - in some cases - its wholly-owned or -controlled
+foreign subsidiaries, cannot open an account for a person named on OFAC's List of Specially Desig-
+nated Nationals and Blocked Persons (SDN List) or a person who is otherwise blocked (e.g., a blocked
+government or an entity that is subject to the 50 Percent Rule). This is a prohibited service.
+OFAC FAQ 560 confirms the obligation is identical on-chain:
+Are my OFAC compliance obligations the same, regardless of whether a transaction is denominated in
+digital currency or traditional fiat currency?
+9
+
+Yes, the obligations are the same.
+OFAC FAQ 1021 extends it explicitly to wallet-level service providers:
+U.S. persons, including virtual currency exchanges, virtual wallet hosts, and other service providers
+... are generally prohibited from engaging in or facilitating prohibited transactions, including virtual
+currency transactions in which blocked persons have an interest.
+Registering a wallet address is the on-chain analogue of opening an account: it is the step that binds an address
+to an identity or a role inside the platform and makes it eligible to hold and move a token. The point of FAQ 42
+is that the prohibition attaches at that moment, not only when value later moves. A control that screens transfers
+but not registration therefore permits the one step FAQ 42 names as prohibited in its own right, and today the only
+signal that anything is wrong appears later, when a transfer or issuance involving that wallet is rejected.
+Recommended Mitigation: Before registering any new address in the protocol, consult the global deny list and
+revert if that address is sanctioned.
+Securitize: Acknowledged; on investor wallets (RegistryService::addWallet) PERMISSIONLESS-compliance
+token (the only compliance type with a working global denylist) deploys with StubRegistryService by default ,
+whose addWallet is a pure no-op. Since ComplianceServicePermissionless never consults investor-registry
+data for authorization in the first place (only the denylist/blacklist checks gate transfers), the fix as suggested would
+be dead code on the one compliance path where it could matter.
+On special wallets (WalletManager::setSpecialWallet, issuer/platform/exchange) assigning any of these roles
+is already gated by onlyIssuerOrAbove a privileged, internal action taken by the issuer/platform operator, not a
+customer-facing self-service flow like investor onboarding. Platform/issuer/exchange wallets are Securitize/issuer-
+controlled operational infrastructure, not third-party accounts, so the entity granting the role already knows who it's
+assigning it to.
+10
+
+7.2
+Informational
+7.2.1
+Deploy task implicit GlobalDenyListManager::initialize resolution can silently deploy an uninitial-
+ized proxy
+Description: The deploy-denylist-manager task calls hre.upgrades.deployProxy(GlobalDenyListManager,
+[]) with no explicit initializer option. In @openzeppelin/hardhat-upgrades, getInitializerData sets al-
+lowNoInitialization = true when the initializer option is omitted and the args array is empty - exactly this call.
+It then resolves a function named initialize; on a failed lookup it returns 0x instead of throwing.
+The
+lookup
+currently
+succeeds,
+so
+GlobalDenyListManager::initialize
+runs
+by
+delegatecall
+from
+the ERC1967Proxy constructor and deployment plus initialization are atomic.
+The deployer receives
+DEFAULT_ADMIN_ROLE in the same transaction that creates the proxy, leaving no front-running window. The finding
+is the fragility of that guarantee, not a live defect.
+Impact: If initialize is renamed or replaced by a differently named initializer, the task deploys the proxy
+with empty init data and reports success. initialize is unauthenticated and grants DEFAULT_ADMIN_ROLE to
+msg.sender, and that role gates BaseRBACContract::_authorizeUpgrade, so the first caller of the uninitialized
+proxy gains full upgrade control. The test suite would not catch the regression: the upgrade test passes initial-
+izer: 'initialize' explicitly while the production task does not.
+Recommended Mitigation: Name the initializer explicitly so a rename throws, and assert the post-deploy state:
+const denylistManager = await hre.upgrades.deployProxy(GlobalDenyListManager, [], {
+initializer: 'initialize',
+});
+await denylistManager.waitForDeployment();
+const [deployer] = await hre.ethers.getSigners();
+if ((await denylistManager.getInitializedVersion()) !== 1n) throw new Error('proxy not initialized');
+if (!(await denylistManager.isAdmin(deployer.address))) throw new Error('deployer is not admin');
+The
+explicit
+initializer
+option
+[...excerpt ends]"
+CB-122,FR-255,The output partner fee can make a validated range of outputMin values revert,Nethermind__NM1048-FINAL_INFRARED.pdf,Nethermind,infrared,2026-09-09,yes,yes,2026-09,Low,"NM-1048 — INFRARED ROUTER — SECURITY REVIEW
+6.4
+[Low] The output partner fee can make a validated range of outputMin values
+revert
+File(s): src/Router.sol
+Description: A swap carries two output limits. The outputQuote value is the amount the backend quoted, and the outputMin value is the
+absolute minimum amount the user must be credited. Two separate features then reduce the amount the executor delivered before that
+minimum is checked. When passPositiveSlippageToUser is false, anything above outputQuote is retained by the protocol and the user
+is credited exactly outputQuote. When partnerFeeOnOutput is true, the partner fee is denominated in the output token and deducted from
+what the user is credited.
+The validation accepts any outputMin up to and including outputQuote:
+1
+// @audit Equality is permitted, so `outputMin == outputQuote` is a valid input.
+2
+if (p.outputMin > p.outputQuote) revert InvalidSlippageBounds();
+The execution path then caps the amount, deducts the fee from the capped value, and only afterwards compares against the minimum:
+1
+uint256 positiveSlippage;
+2
+if (!params.passPositiveSlippageToUser && amountOut > params.outputQuote) {
+3
+positiveSlippage = amountOut - params.outputQuote;
+4
+// @audit The surplus is retained here, so the fee below is charged on
+5
+// `outputQuote` rather than on the amount the executor delivered.
+6
+amountOut = params.outputQuote;
+7
+}
+8
+9
+uint256 outputPartnerFee;
+10
+if (params.partnerFeeOnOutput && params.partnerFeeBps > 0) {
+11
+outputPartnerFee = (amountOut * params.partnerFeeBps) / 10_000;
+12
+// @audit-issue The fee is subtracted from the capped amount.
+13
+amountOut -= outputPartnerFee;
+14
+_transferOut(params.outputToken, params.partnerRecipient, outputPartnerFee);
+15
+}
+16
+17
+// @audit-issue The minimum is checked last, against the twice-reduced amount.
+18
+if (amountOut < params.outputMin) {
+19
+revert SlippageExceeded(params.outputToken, amountOut, params.outputMin);
+20
+}
+Because amountOut is capped at outputQuote once the cap engages, the most the user can ever be credited is outputQuote minus the
+partner fee. Validation, however, allows outputMin all the way up to outputQuote. Every outputMin above the reduced amount therefore
+reverts no matter how well the trade executed.
+This affects any swap configured with partnerFeeOnOutput set to true, a non-zero partnerFeeBps, and passPositiveSlippageToUser set
+to false. With an outputQuote of 1000e18 and a partnerFeeBps of 200, the most the user can be credited is 980e18, so every outputMin
+above 980e18 is unreachable. A one percent tolerance places outputMin at 990e18, already inside that range, so the swap cannot succeed.
+This means that there are cases in which a parameter combination the validation logic accepts as valid, can never settle in reality, and the
+user pays gas for a transaction that could not have succeeded.
+Recommendation(s): Consider enforcing the outputMin floor against the amount before the output-side partner fee is deducted, or
+alternatively tightening the validator so that it rejects an outputMin that the configured partnerFeeBps makes unreachable. Whichever
+approach is taken should be mirrored in _settleOutputs(...).
+Status: Fixed at commit 8c64a74
+Update from the client: Fixed in commit 8c64a74 by tightening the validator (second recommended option). outputQuote stays the
+gross ceiling and outputMin the net floor, which is how the backend already sizes them; _validateSwapCommon and _validateMultiSwap
+now compute the reachable ceiling outputQuote - fee(outputQuote) (capture on, output-side fee) with the same flooring as settlement
+and revert OutputMinUnreachable(outputMin, maxReachable) before pulling any input. Pass-through or no output fee leaves behaviour
+unchanged. The previous test encoded the flagged case as a post-execution SlippageExceeded; it is replaced by validation, ceiling,
+short-swap and pass-through tests plus a multi-swap mirror, and the short-payment fuzz oracle now covers the ceiling.
+10
+
+NM-1048 — INFRARED ROUTER — SECURITY REVIEW
+6.5
+[Info] Multiswap events sum input amounts across tokens with different deci-
+mals
+File(s): src/Router.sol
+Description: The swapMulti(...) function accepts several input tokens and several output tokens in one transaction, and emits one Swap
+event per output. The event carries a single input token and a single input amount, and its documentation states that the ten fields are
+sufficient to reconstruct full fee attribution off chain.
+The values placed in those two fields are produced by accumulating across every input:
+1
+uint256 n = params.inputTokens.length;
+2
+// @audit-issue One arbitrary token is chosen to label the aggregate.
+3
+effectiveInputToken = params.inputTokens[0];
+4
+address exec = executor;
+5
+for (uint256 i = 0; i < n; ++i) {
+6
+address token = params.inputTokens[i];
+7
+// @audit-issue Amounts of different tokens are summed into one scalar.
+8
+inputAmountSum += params.inputAmounts[i];
+9
+// ...
+10
+if (token == NATIVE_ETH_SENTINEL) {
+11
+nativeForwardAmount = forward;
+12
+effectiveInputToken = NATIVE_ETH_SENTINEL;
+13
+}
+14
+}
+Adding an amount denominated in a six decimal token to one denominated in an eighteen decimal token produces a wrong number and
+labelling it with whichever token occupies the first slot makes it misleading. For inputs of 10_000e6 USDC and 1e18 WETH the emitted
+amount is 1000000010000000000 tagged as USDC, and WETH is absent from every event the swap produces.
+This means the documented reconstruction does not hold for multi input swap.
+The failure is silent because the ratio between the
+aggregated fee and the aggregated amount still approximates the configured basis points, so a check on the implied rate passes while
+every consumer that reads the amounts as values is wrong by the decimal difference between the tokens. Any off chain process that relies
+on these numbers will be wrong.
+Recommendation(s): Consider emitting a dedicated multi swap event that carries the input token and amount arrays and compute the
+amounts accordingly.
+Status: Fixed at commit 54435a9
+Update from the client: Fixed in commit 54435a9. Multi-swaps now emit a single MultiSwap event carrying parallel per-token arrays (input
+tokens and amounts, per-input protocol and partner fees, output tokens, gross and net outputs, per-output partner fees and captured
+slippage). Nothing is summed or split across tokens, and Swap is emitted only by the single-swap entry points. The pro-rata splitting
+helpers were removed. Covered by a mixed-decimals test (10_000e6 + 1e18 inputs with fees and captured slippage) that checks every
+emitted value against on-chain balances.
+11
+
+NM-1048 — INFRARED ROUTER — SECURITY REVIEW
+6.6
+[Info] The executePath(...) function has no access control while it custodies
+in-flight user funds
+File(s): src/ExecutionProxy.sol, src/Router.sol
+Description: The ExecutionProxy contract is the Weiroll virtual machine that the Router contract delegates trade execution to. During a
+swap the Router transfers the user’s input tokens to the executor and then asks it to run the trade program. The executor is documented
+[...excerpt ends]"
+CB-227,,Key rotation can lock failed encrypted deposits,Trail_of_Bits__2026-11-scrollfoundation-tvltoethereum-securityreview.pdf,Trail of Bits,scroll,2026-10-19,no,yes,2026-11,Medium,"
+ 
+2. Key rotation can lock failed encrypted deposits 
+Severity: Medium 
+Difficulty: Low 
+Type: Timing 
+Finding ID: TOB-SCRLM-2 
+Target: src/validium/L1ERC20GatewayValidium.sol, 
+src/validium/L1ScrollMessengerValidium.sol, 
+src/validium/ScrollChainValidiumV2.sol 
+ 
+Description 
+In the validium deposit flow, the replayMessage function re-enqueues the original 
+ciphertext at a new queue index, while l2geth selects the encryption key from that new 
+index. If the key rotates between a failed deposit and its replay, the decryption attempt 
+returns the ErrDecryptionFailed error. l2geth then includes the encrypted call 
+unchanged, causing the L2 gateway call to revert before minting and leaving the deposited 
+tokens locked in L1 escrow. 
+Validium deposits encrypt only the L2 recipient. The sequencer decrypts the recipient 
+before executing the deposit on L2 (design). When a deposit fails on L2 (e.g., due to 
+insufficient gas), a user can call replayMessage with a higher gas limit. The function 
+rebuilds the previously enqueued cross-domain calldata, including the ciphertext, and 
+appends it at the queue’s next index. 
+bytes memory _xDomainCalldata = _encodeXDomainCalldata(_from, _to, _value, 
+_messageNonce, _message); 
+bytes32 _xDomainCalldataHash = keccak256(_xDomainCalldata); 
+ 
+// ... 
+uint256 _nextQueueIndex = 
+IL1MessageQueueV2(messageQueueV2).nextCrossDomainMessageIndex(); 
+IL1MessageQueueV2(messageQueueV2).appendCrossDomainMessage(counterpart, 
+_newGasLimit, _xDomainCalldata); 
+Figure 2.1: replayMessage re-enqueues previously enqueued calldata at the next queue index. 
+(scroll-contracts-internal/src/L1/L1ScrollMessenger.sol#L234–L253) 
+Registering a new key makes it apply from the queue’s next index (rotation). l2geth then 
+selects the key for each message from its current queue index. 
+for i := range l1Messages { 
+​
+queueIndex := l1Messages[i].QueueIndex 
+ 
+​
+        Trail of Bits​
+14​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+​
+// ... 
+​
+pubKey, err := selectEncryptionKeyFromDB(w.eth.ChainDb(), queueIndex) 
+​
+// ... 
+​
+decrypted, err := validium.DecryptTxDataWithPubKey(l1Messages[i].Data, pubKey) 
+​
+if err == nil { 
+​
+​
+// ... 
+​
+​
+l1Messages[i].Data = decrypted 
+​
+​
+// ... 
+​
+} else if errors.Is(err, validium.ErrMissingPrivateKey) { 
+​
+​
+// ... 
+​
+} else { 
+​
+​
+// User error (ErrDecryptionFailed or other): include message as-is, it 
+will revert on execution. 
+​
+​
+log.Warn(""Failed to decrypt L1 message, including as-is"", ""queueIndex"", 
+queueIndex, ""error"", err) 
+​
+} 
+} 
+Figure 2.2: l2geth selects the replay's key from its queue index and retains the encrypted call 
+after decryption fails. (go-ethereum/miner/scroll_worker.go#L868–L895) 
+When decryption succeeds, l2geth replaces the finalizeDepositERC20Encrypted 
+function call with a call to the gateway’s finalizeDepositERC20 function. After a 
+rotation, decrypting the old ciphertext with the new key returns the 
+ErrDecryptionFailed error (decryption). l2geth then leaves the queued 
+relayMessage function call unchanged, so the L2ScrollMessenger contract forwards 
+the finalizeDepositERC20Encrypted function call to the L2 gateway. The gateway does 
+not implement this function, so the call reverts before minting. The messenger emits the 
+FailedRelayedMessage event without marking the message as executed, while the relay 
+transaction succeeds (gateway interface, relay handling). 
+The replayMessage function requires a previously enqueued message hash, so the user 
+cannot replace its ciphertext with one encrypted under the new key. Replays under that key 
+follow the same failure path. 
+Exploit Scenario 
+A user's deposit encrypted under K0 runs out of gas on L2. Before the user replays it with a 
+higher gas limit, the key manager rotates to K1. The replay retains the K0 ciphertext but 
+receives a K1 queue index, so authenticated decryption fails. l2geth includes the 
+encrypted call unchanged; the gateway call fails before minting, while the outer transaction 
+succeeds and the deposited tokens remain escrowed on L1. 
+Recommendations 
+Short term, bind each encrypted message and its replays to the key used for the original 
+message, regardless of their queue indices, and use that binding for sequencer decryption, 
+bundle construction, and proof verification. This keeps key selection consistent with the 
+retained ciphertext. 
+​
+        Trail of Bits​
+15​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+Long term, add an end-to-end regression test in which a deposit encrypted with K0 fails, K1 
+is registered, and the replay finalizes and credits the intended recipient exactly once. As 
+controls, test a replay without rotation and a new deposit encrypted with K1. This detects 
+future inconsistencies across the replay and proof flows. 
+ 
+​
+        Trail of Bits​
+16​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+ 
+3. Pre-handover deployer actions can affect the funded migration 
+Severity: Informational 
+Difficulty: High 
+Type: Auditing and Logging 
+Finding ID: TOB-SCRLM-3 
+Target: sunset-migration/runner-core/src/runner.ts, 
+sunset-migration/runner-core/src/steps/gateways.ts, 
+sunset-migration/usx-migration/src/steps/system.ts, 
+sunset-migration/usx-migration/src/steps/helpers.ts 
+ 
+Description 
+The migration runner verifies the transactions it records and selected final state; it does not 
+attest that the deployer sent no additional transactions. While the deployer controls 
+upgrades, a stolen key could make a persistent change, restore the expected 
+implementation, and complete handover with the checks passing. This is an operational 
+risk that requires compromise or misuse of the trusted deployer. 
+For example, a temporary USX implementation could grant the attacker an allowance over 
+the empty gateway. Step 20 later funds the gateway, after which the attacker could use 
+transferFrom to steal the escrow. Other examples include hidden balances, roles, voting 
+delegations, or queued bridge messages. 
+The SCR and USX threat models state that handover before funding limits a stolen or 
+misused deployer key. This mitigation does not cover state or messages created before 
+handover. 
+Exploit Scenario 
+An attacker with the deployer key temporarily upgrades USX to grant itself an allowance 
+over the gateway’s future balance, restores the expected implementation, and waits until 
+the gateway is funded before using transferFrom to steal the escrow. 
+Recommendations 
+After all handovers and before funding: 
+●​ Compare the deployer’s complete transaction history on both chains with the 
+migration plan, including calldata, internal calls, and contract-creation inputs. 
+●​ Review temporary upgrades, their state changes, and any activity by addresses that 
+temporarily held privileges. 
+​
+        Trail of Bits​
+17​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+●​ Reconcile all cross-chain messages initiated by the new gateways, including pending 
+[...excerpt ends]"
+CB-233,,USX canary step waits indefinitely after a failed relay,Trail_of_Bits__2026-11-scrollfoundation-tvltoethereum-securityreview.pdf,Trail of Bits,scroll,2026-10-19,no,yes,2026-11,Low,"
+ 
+14. USX canary step waits indefinitely after a failed relay 
+Severity: Low 
+Difficulty: High 
+Type: Error Reporting 
+Finding ID: TOB-SCRLM-14 
+Target: sunset-migration/runner-core/src/steps/canary.ts, 
+scroll-contracts-internal/src/L1/L1ScrollMessenger.sol 
+ 
+Description 
+When the USX canary claim’s relay transaction succeeds but the inner gateway call fails, the 
+runner reports the canary step as waiting indefinitely and never sends another relay. A 
+gateway fault therefore looks like a pending claim, and the final readiness gate cannot 
+complete until the operator diagnoses it outside the runner. 
+The canary claim step proves the bridge end to end by claiming a small USX withdrawal on 
+Ethereum through one relayMessageWithProof transaction to the L1 messenger. If the 
+gateway call fails, the messenger does not revert. It emits a FailedRelayedMessage event 
+and leaves the message unexecuted, so the outer transaction succeeds and the message 
+can be relayed again (figure 14.1). 
+(bool success, ) = _to.call{value: _value}(_message); 
+// reset value to refund gas. 
+xDomainMessageSender = ScrollConstants.DEFAULT_XDOMAIN_MESSAGE_SENDER; 
+ 
+if (success) { 
+    isL2MessageExecuted[_xDomainCalldataHash] = true; 
+    emit RelayedMessage(_xDomainCalldataHash); 
+} else { 
+    emit FailedRelayedMessage(_xDomainCalldataHash); 
+} 
+Figure 14.1: The messenger marks the message executed only if the gateway call succeeds. 
+(scroll-contracts-internal/src/L1/L1ScrollMessenger.sol#L208–L217) 
+The step’s post-check waits until the messenger marks the message as executed, using a 
+check that reports waiting rather than blocked when it fails (figure 14.2). 
+post: async (ctx) => [ 
+  waitFor( 
+    ""the recorded canary message is executed on Ethereum"", 
+    true, 
+    await ctx.read(""l1"", ctx.address(""l1Messenger""), messengerAbi, 
+""isL2MessageExecuted"", [ 
+​
+        Trail of Bits​
+48​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+      keccak256(encodeFunctionData({ abi: messengerAbi, functionName: 
+""relayMessage"", args: canaryMessage(ctx) })), 
+    ]), 
+  ), 
+Figure 14.2: The canary claim waits for the message to be executed. 
+(sunset-migration/runner-core/src/steps/canary.ts#L75–L82) 
+However, the step never inspects the receipt for FailedRelayedMessage, so a failed relay 
+looks the same as a pending one. Because the step record already holds a transaction 
+hash, every rerun only re-observes that receipt and never prepares a new relay, even after 
+the gateway fault is fixed. 
+Exploit Scenario 
+The operator runs the canary claim step after step 20. The L1 gateway rejects the canary 
+withdrawal because of a configuration fault, and the relay transaction succeeds with a 
+FailedRelayedMessage event. The runner reports that it is waiting for execution, and the 
+operator reruns the step for hours with the same result while the gateway fault goes 
+undiagnosed. 
+Recommendations 
+Short term, make the canary claim step report blocked when the relay receipt contains 
+FailedRelayedMessage, and document how to retry the relay. 
+Long term, allow steps that wait for an external state change to prepare a new attempt 
+when a mined attempt did not produce that change.
+ 
+​
+        Trail of Bits​
+49​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+A. Vulnerability Categories 
+The following tables describe the vulnerability categories, severity levels, and difficulty 
+levels used in this document. 
+Vulnerability Categories 
+Category 
+Description 
+Access Controls 
+Insufficient authorization or assessment of rights 
+Auditing and Logging 
+Insufficient auditing of actions or logging of problems 
+Authentication 
+Improper identification of users 
+Configuration 
+Misconfigured servers, devices, or software components 
+Cryptography 
+A breach of system confidentiality or integrity 
+Data Exposure 
+Exposure of sensitive information 
+Data Validation 
+Improper reliance on the structure or values of data 
+Denial of Service 
+A system failure with an availability impact 
+Error Reporting 
+Insecure or insufficient reporting of error conditions 
+Patching 
+Use of an outdated software package or library 
+Session Management 
+Improper identification of authenticated users 
+Testing 
+Insufficient test methodology or test coverage 
+Timing 
+Race conditions or other order-of-operations flaws 
+Undefined Behavior 
+Undefined behavior triggered within the system 
+ 
+​
+        Trail of Bits​
+50​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+ 
+Severity Levels 
+Severity 
+Description 
+Informational 
+The issue does not pose an immediate risk but is relevant to security best 
+practices. 
+Undetermined 
+The extent of the risk was not determined during this engagement. 
+Low 
+The risk is small or is not one the client has indicated is important. 
+Medium 
+User information is at risk; exploitation could pose reputational, legal, or 
+moderate financial risks. 
+High 
+The flaw could affect numerous users and have serious reputational, legal, 
+or financial implications. 
+ 
+Difficulty Levels 
+Difficulty 
+Description 
+Not Applicable 
+This issue is of informational severity and does not pose an immediate risk, 
+so difficulty does not apply. 
+Undetermined 
+The difficulty of exploitation was not determined during this engagement. 
+Low 
+The flaw is well known; public tools for its exploitation exist or can be 
+scripted. 
+Medium 
+An attacker must write an exploit or will need in-depth knowledge of the 
+system. 
+High 
+An attacker must have privileged access to the system, may need to know 
+complex technical details, or must discover other weaknesses to exploit this 
+issue. 
+ 
+ 
+ 
+ 
+​
+        Trail of Bits​
+51​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+B. Code Quality Issues 
+The finding in this appendix does not have immediate or obvious security implications. 
+However, addressing it may enhance the code’s readability and may prevent the 
+introduction of vulnerabilities in the future. 
+●​ SCR and USX trust models omit the Security Council's no-delay upgrade of the 
+escrow gateways. The SCR and USX threat models do not mention that 
+SECURITY_COUNCIL_NO_DELAY_ROLE can call the upgrade and upgradeAndCall 
+functions of Scroll’s shared ProxyAdmin 
+(InitializeL1ScrollOwner.s.sol#L135-L143), which administers the new 
+gateways after the handover. The Security Council can therefore upgrade the 
+escrow gateways without delay. Document this role in both threat models.
+ 
+​
+        Trail of Bits​
+52​
+Scroll Foundation TVL to Ethereum​
+        PUBLIC​
+​
+Security Assessment 
+
+C. Fix Review Results 
+When undertaking a fix review, Trail of Bits reviews the fixes implemented for issues 
+identified in the original report. This work involves a review of specific areas of the source 
+code and system configuration, not comprehensive analysis of the system. 
+From November 16 to November 17, 2026, Trail of Bits reviewed the fixes and mitigations 
+implemented by the Scroll Foundation team for the issues identified in this report. We 
+[...excerpt ends]"
+CB-134,FR-343,5. A shipped migration script can never succeed,QuillAudits__Aum_Money_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,aum-money,2026-08-18,no,no,2026-10,Low,"Low Severity Issues
+Low Severity Issues
+5. A shipped migration script can never succeed
+Acknowledged
+Path
+script/DeployAndWireVaultSingleAdmin.s.sol
+Description
+The protocol requires its five vault roles (admin, upgrader, operator, certifier, custodian) to be five
+different addresses. This is enforced when a vault is created, and creation is rejected if any two match.
+One of the shipped migration scripts, which describes itself in its own comments as a live production
+migration, hardcodes all five roles to the same address. The vault it tries to create is therefore always
+rejected and the script always fails. It has never worked and never will.
+Its sibling script does the same thing on purpose and says so plainly in its header, ""retained for
+controlled failure testing"". This one carries no such warning.
+Its success checks are also incomplete. It confirms the new vault's pointers, dependencies and roles,
+but never checks whether the old vault still holds gold, tokens or pending requests. So if the role
+problem were fixed, the script would report success while creating exactly the trapped vault described
+in Finding 2.
+Impact
+Wasted operational effort and a misleading file in the repository. An operator preparing a migration
+follows a documented procedure that cannot work, and only finds out when it fails.
+Correction to the original report. It claimed the script pauses the live vault before failing, leaving
+production frozen with no replacement. That was tested against a real node and does not happen. The
+pause step runs during a local dry run, but the tool only sends transactions after the whole script
+completes successfully. Since it always fails, nothing is sent and the live system is untouched. This
+holds with standard settings and with simulation disabled, and the project's own build commands do not
+change it.
+So the impact is a broken tool, not a production outage. Severity is Low, not High.
+Likelihood
+It fails 100% of the time, but the consequence is only wasted time. The dangerous part, the missing
+drained vault checks, never runs because the script dies before reaching it.
+Recommendation
+Read the five role addresses from configuration instead of hardcoding them, and check they are all
+different before doing anything else:
+25
+www.quillaudits.com
+
+Aum Money - Audit Report
+Low Severity Issues
+5. A shipped migration script can never succeed 
+- address admin = ADMIN; address upgrader = ADMIN; address operator = ADMIN;
+- address certifier = ADMIN; address custodian = ADMIN;
++ address admin     = vm.envAddress(""VAULT_ADMIN"");
++ address upgrader  = vm.envAddress(""VAULT_UPGRADER"");
++ address operator  = vm.envAddress(""VAULT_OPERATOR"");
++ address certifier = vm.envAddress(""VAULT_CERTIFIER"");
++ address custodian = vm.envAddress(""VAULT_CUSTODIAN"");
++ _requireDistinct([admin, upgrader, operator, certifier, custodian]);
++ require(currentVault.totalBackedOzMicro() == 0 && currentVault.pendingRequests() == 0
++     && currentVault.totalLockedTroy() == 0, ""outgoing vault not drained"");
+  vm.startBroadcast();
+- currentVault.pause();
++ // deploy and verify the replacement first, then pause
+Add the drained vault precondition, and see Finding 2, because that check alone can leave you with a
+vault that can never be replaced.
+Reorder so the replacement is deployed and verified before the live system is paused. Even though the
+current failure mode is harmless, ""pause production first, build the replacement second"" is the wrong
+order and will eventually bite.
+Finally, either give this script the same explicit ""not for deployment"" header its sibling carries, or make it
+actually work. Right now it advertises itself as a live migration path and is not one.
+Status
+Acknowledged
+Team’s Comment
+DeployAndWireVaultSingleAdmin.s.sol is a test script and will not be used for the main
+deployment. Its header already describes a test migration.
+(continued)
+26
+www.quillaudits.com
+
+Aum Money - Audit Report
+Functional Tests
+Functional Tests
+Functional Tests
+14 checks
+Some of the tests performed are mentioned below:
+Verified successful deployment and initialization of all in-scope contracts.
+Verified role-based access control for privileged functions.
+Verified token minting and burning flows.
+Verified certificate NFT deposit and withdrawal flows.
+Verified TROY token transfer and approval functionality.
+Verified USDT/USDC exchange and settlement flows.
+Verified oracle price retrieval and validation.
+Verified compliance and blacklist checks.
+Verified blacklisted users are prevented from restricted token operations.
+Verified USDT blacklist behavior and confirmed that transfers involving a blacklisted address revert.
+Verified deposit and withdrawal recovery flows.
+Verified invalid inputs and unauthorized calls revert as expected.
+Verified pause/unpause functionality where applicable.
+Verified protocol state transitions across the main user flows.
+Fuzzing Tests
+26 checks
+Solvency and value conservation
+Verified TROY total supply always equals total gold backing ( totalBackedOzMicro scaled by 1e12) across all
+deposit and withdrawal sequences.
+Verified total gold backing equals the summed weight of all certificates held as Backing or
+WithdrawalReserved, with no phantom backing.
+Verified the vault's TROY balance always covers total locked TROY, and per-user locks sum exactly to the
+tracked total.
+Verified the Exchange's TROY balance always covers recorded reserves, and its stable balance always covers
+tracked liquidity plus accumulated fees.
+Verified each withdrawal completion fully accounts its escrow: burned redemption plus refunded remainder
+equals the escrowed TROY, with none stranded or created.
+27
+www.quillaudits.com
+
+Aum Money - Audit Report
+Functional Tests
+Verified deposit and withdrawal unwind paths (reject, cancel, revoke, recover) leave TROY supply and gold
+backing unchanged, so only approval and completion move them.
+Verified exchange fee separation is exact, with net plus fee equal to gross and no wei lost or created.
+Certificate and request state machine
+Verified certificate positions and their active request IDs remain a consistent bidirectional binding at all times.
+Verified no certificate can be reserved by two withdrawal requests at once (no double-spend of backing)
+across revoke and re-approve interleavings.
+Verified a reopened pending withdrawal carries no stale allocated certificates or weight.
+Verified request status transitions follow the legal graph and terminal states (completed, rejected, cancelled,
+recovered) never change again.
+Verified consumed custody and fulfillment references can never be replayed.
+Verified request IDs are strictly increasing and each is assigned only once.
+Limits and circuit breakers
+Verified the daily TROY mint limit is never exceeded within a UTC day.
+Verified per-user and global daily exchange limits are never breached, and global leaky-bucket usage never
+exceeds capacity.
+Rescue safety and fund isolation
+Verified admin rescue can never reduce the vault's TROY below total locked, and can never move a certificate
+[...excerpt ends]"
+CB-132,FR-341,3. Re-approving a delayed withdrawal gives the custodian one hour instead of seven days,QuillAudits__Aum_Money_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,aum-money,2026-08-18,no,no,2026-10,Medium,"Medium Severity Issues
+Medium Severity Issues
+3. Re-approving a delayed withdrawal gives the custodian
+one hour instead of seven days
+Acknowledged
+Path
+src/VaultManager.sol
+Description
+When an operator approves a gold withdrawal, a seven day clock starts. If the custodian has not shipped
+within that window, the customer may cancel and take their tokens back.
+Operators can also revoke an approval, which is the documented way to handle a shipping delay and re-
+assign later. Revoking resets the status and clears several fields, but it does not reset the clock. When
+the request is approved again, the original seven day deadline is still running.
+So an operator can re-approve on day 6 and what looks like a fresh seven day window is actually one
+hour. The custodian sees a new approval and has no reason to suspect otherwise.
+There is a second problem in the same place, not in the original report. If the request is left revoked past
+the seven day mark it can never be approved again, because the system rejects it as expired. An
+operator using the documented delay procedure can permanently destroy a customer's ability to
+receive their gold. Only cancel or reject remain.
+Impact
+The customer ends up with both the gold and the money. Once the stale deadline passes they cancel
+and get a 100% refund, while the bar has already shipped. The books then count that bar as backing
+again, so the shortfall is invisible and the health check reports full solvency.
+This is the same end state as Finding 1, reached through a different door.
+The second problem is a service failure rather than a loss: a withdrawal becomes permanently
+unfulfillable and must be torn down and restarted.
+Likelihood
+Medium. It needs an operator to use revoke and re-approve late in the window, which is exactly what
+that flow exists for, since delayed international bullion shipments are the reason it is there.
+The customer plans nothing. They cancel when the system allows it, which looks completely legitimate
+from their side. The custodian gets caught out and has no on chain signal that the window is closing.
+The docs acknowledge that cancel and complete can race after the deadline. What they do not
+acknowledge, and what makes this a finding, is that revoke and re-approve silently compresses the
+window without telling anyone.
+20
+www.quillaudits.com
+
+Aum Money - Audit Report
+Medium Severity Issues
+3. Re-approving a delayed withdrawal gives the custodian one hour
+instead of seven days 
+POC
+function test_POC_F5_reapprovalInheritsStaleDeadline() public {
+  uint256 bar = _issueAndDeposit(alice, ""BAR-A"", keccak256(""CUSTODY-A""));
+  vm.startPrank(alice);
+  troy.approve(address(vault), type(uint256).max);
+  uint256 wReq = vault.requestWithdraw(TEN_OZ_1E18);
+  vm.stopPrank();
+​
+  uint256[] memory one = new uint256[](1);
+  one[0] = bar;
+​
+  uint256 t0 = block.timestamp;
+  vm.prank(operator);
+  vault.approveWithdraw(wReq, one);
+  anchor = vault.getWithdrawalRequest(wReq).approvalTimestamp;
+  assertEq(uint256(anchor), t0, ""first approval anchors the deadline at t0"");
+​
+  // Operator revokes. The deadline anchor survives the reopen.
+  vm.prank(operator);
+  vault.revokeWithdrawApproval(wReq, ""logistics delay"");
+  assertEq(vault.getWithdrawalRequest(wReq).approvalTimestamp, anchor,
+    ""revoke clears status but NOT approvalTimestamp"");
+​
+  // Re-approved one hour before the ORIGINAL deadline.
+  vm.warp(t0 + 7 days - 1 hours);
+  vm.prank(operator);
+  vault.approveWithdraw(wReq, one);
+  VaultTypes.WithdrawalRequest memory r = vault.getWithdrawalRequest(wReq);
+  assertEq(r.approvalTimestamp, anchor, ""HARM: fresh approval carries a 7-day-old deadline"");
+  assertEq(uint256(r.approvalTimestamp) + 7 days, block.timestamp + 1 hours,
+    ""HARM: the just-granted approval expires in one hour"");
+​
+  // The custodian ships the bar. One hour later the customer cancels and takes the money back.
+  vm.warp(t0 + 7 days + 1);
+  vm.prank(alice);
+  vault.cancelWithdraw(wReq);
+​
+  assertEq(troy.balanceOf(alice), TEN_OZ_1E18, ""HARM: full refund after the bar shipped"");
+  (VaultTypes.CertificateState st,) = vault.certificatePositions(bar);
+  assertEq(uint8(st), uint8(VaultTypes.CertificateState.Backing),
+    ""HARM: shipped bar counted as backing again"");
+  assertTrue(vault.onChainBackingMatchesSupply(), ""protocol reports itself solvent"");
+}
+[PASS] test_POC_F5_reapprovalInheritsStaleDeadline()
+[PASS] test_POC_F5b_revokeAfterDeadlinePermanentlyBlocksReapproval()
+The second test approves, revokes, waits past day 7, and shows re-approval is rejected as expired,
+permanently.
+(continued)
+21
+www.quillaudits.com
+
+Aum Money - Audit Report
+Medium Severity Issues
+3. Re-approving a delayed withdrawal gives the custodian one hour
+instead of seven days 
+Recommendation
+One line fix. Clear the deadline when a revoked request is reopened, alongside the fields already cleared
+there:
+  function _reopenWithdrawalRequest(VaultTypes.WithdrawalRequest storage request) internal {
+      request.status = VaultTypes.WithdrawalRequestStatus.Pending;
+      request.approvedBy = address(0);
+      request.completionTimestamp = 0;
++     request.approvalTimestamp = 0;
+      pendingRequests++;
+  }
+Each new approval then gets its own full seven days and the permanent expiry problem disappears too.
+If keeping the original deadline is genuinely intended, make it visible: return the remaining time from the
+approval function, put it in the event, and reject any re-approval that would leave less than a minimum
+settlement window. A custodian should never accept a request without knowing how long they have.
+Status
+Acknowledged
+Team’s Comment
+Preserving the first approval timestamp is deliberate. The purpose is to prevent an operator from
+repeatedly revoking and reapproving a withdrawal to extend the customer’s escrow lock
+indefinitely.
+(continued)
+22
+www.quillaudits.com
+
+Aum Money - Audit Report
+Medium Severity Issues
+Medium Severity Issues
+4. A price safety switch ships turned off and nothing in the
+deployment turns it on
+Resolved
+Path
+src/Exchange.sol:173-187
+Function Name
+_skewOk
+Description
+Every swap combines two price readings: the price of gold, and the price of the stablecoin being traded.
+Each is separately checked for freshness, and neither may be older than about 65 minutes.
+But two readings can both be individually fresh and still come from very different moments. A gold price
+from right now paired with a stablecoin price from 65 minutes ago passes both checks. The contract has
+a setting to limit that gap.
+That setting is missing from the deployment configuration, is never assigned at startup, and so defaults
+to zero. Zero means ""no limit, skip the check"". No deployment script turns it on. The go live checklist
+script, which verifies oracle health, reserves and compliance before opening trading, never checks it
+either.
+The code's own comment describes what is being left open: combining prices from different moments is
+""an arbitrage/manipulation surface even when each feed independently passes its own freshness
+[...excerpt ends]"
+CB-175,,Paused tMUSD still permits approval and permit state changes,QuillAudits__RapidDex_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,rapiddex,2026-08-25,no,no,2026-11,Low,"Low Severity Issues
+Low Severity Issues
+Paused tMUSD still permits approval and permit state changes
+Resolved
+Path
+TestToken.sol, ERC20Pausable.sol, ERC20Permit.sol
+Function Name
+approve(), permit(), _approve(), _update()
+Description
+Pause only blocks _update(). Allowance changes through approve() and permit() remain available.
+Impact
+Spending permissions can be staged during an emergency pause and used once the token is unpaused.
+Recommendation
+Either pause approval and permit paths too, or document that pause only stops token movement.
+20
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+unBlacklist() emits removal events for accounts that are not
+blacklisted
+Resolved
+Path
+TestToken.sol
+Function Name
+unBlacklist()
+Description
+unBlacklist() emits UnBlacklisted even when the account was not blacklisted.
+Recommendation
+Require the account to be blacklisted before clearing the flag and emitting the event.
+21
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+WMST.totalSupply() can drift from tracked user balances after
+forced native transfers
+Resolved
+Path
+WMST.sol
+Function Name
+totalSupply(), deposit(), withdraw()
+Description
+totalSupply() returns the contract's native balance instead of tracked wrapped balances.
+Recommendation
+Confirm this WETH-style drift is accepted, or track supply explicitly in deposit() and withdraw().
+22
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+Use of inconsistent one-step and two-step ownership patterns
+Resolved
+Path
+TestToken.sol, MinimalPositionDescriptor.sol, LPStateStorage.sol
+Function Name
+transferOwnership(), acceptOwnership(), updateBlacklister()
+Description
+Some admin roles use two-step transfer, while others update authority in one transaction. A wrong
+address can permanently receive sensitive permissions such as minting, pausing, metadata control, or
+blacklist control.
+Recommendation
+Use a consistent two-step acceptance flow for ownership and blacklist authority.
+23
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+README deployment addresses are not generated from the
+verified deployment mapping
+Resolved
+Path
+README.md
+Function Name
+–
+Description
+The README maps contract names to the wrong MST Testnet addresses. The deployed bytecode
+matches the repo, but the labels are permuted.
+WMST                 | 0xCa626248811DaD64F8284Ea63a11C2A4078795BC
+tMUSD (tMUSDC)       | 0x7f64380eAb3e93ceA8aEA7D51294F83e5f067458
+V3 Factory           | 0xD02BB60b01cB1DDca2Af9183499958E5494598f5
+Position Descriptor  | 0xe87FAAcbF4df86B2459937c1e8C71AB4810eFA9a
+Position Manager     | 0x45F540Ccd263b1511a8c3C02bcB5E64876577Ad6
+Swap Router          | 0x0D24EC10272D6081E4b95e0D3F4B03ba8a43c605
+Quoter V2            | 0xA570f13D675E05a2916885f7236ED88BeF151488
+LP State Storage     | 0xE530b2B61C0C6243502dF49A93A0622aCDa6AFC7
+Recommendation
+Regenerate the address table from a canonical deployment manifest and verify each address against
+runtime bytecode before release.
+WMST                       | 0x7f64380eAb3e93ceA8aEA7D51294F83e5f067458
+tMUSD (tMUSDC)             | 0xA570f13D675E05a2916885f7236ED88BeF151488
+RapiddexV3Factory          | 0xE530b2B61C0C6243502dF49A93A0622aCDa6AFC7
+MinimalPositionDescriptor  | 0xCa626248811DaD64F8284Ea63a11C2A4078795BC
+NonfungiblePositionManager | 0x0D24EC10272D6081E4b95e0D3F4B03ba8a43c605
+SwapRouter                 | 0x45F540Ccd263b1511a8c3C02bcB5E64876577Ad6
+QuoterV2                   | 0xe87FAAcbF4df86B2459937c1e8C71AB4810eFA9a
+LPStateStorage             | 0xD02BB60b01cB1DDca2Af9183499958E5494598f5
+24
+www.quillaudits.com
+
+RapidDex - Audit Report
+Functional Tests
+Functional Tests
+WMST
+deposit credits the sender's wrapped balance by exactly the native value sent
+deposit emits Deposit naming the sender and the amount
+deposit reverts when the native value sent is zero
+receive routes a plain native transfer into deposit
+receive reverts on a zero-value plain transfer
+withdraw reverts when the caller asks for more than their wrapped balance
+withdraw debits the balance before sending native back to the caller
+withdraw emits Withdrawal before the native transfer is attempted
+withdraw reverts if the native transfer back to the caller fails
+withdraw blocks a receiver that re-enters withdraw during the native transfer
+withdraw of the full balance leaves the caller at zero and keeps the lock released
+withdraw of zero succeeds and moves no value
+transfer moves the balance between two accounts and emits Transfer
+transfer to the zero address reverts
+transfer routes through transferFrom without consuming any allowance
+transferFrom spends allowance when the spender is not the source account
+transferFrom leaves an infinite allowance unchanged after a spend
+transferFrom reverts when the allowance is below the requested amount
+transferFrom reverts when the source balance is below the requested amount
+approve overwrites any previous allowance and emits Approval
+totalSupply equals the contract's own native balance
+name, symbol and decimals are fixed constants and cannot be changed
+tMUSD (TestToken)
+constructor sets the ERC-20 name, the symbol and an initial owner
+constructor assigns the blacklister role to the initial owner
+constructor emits BlacklisterChanged naming the initial blacklister
+25
+www.quillaudits.com
+
+RapidDex - Audit Report
+Functional Tests
+decimals returns six rather than the ERC-20 default of eighteen
+mint reverts when the caller is not the owner
+mint reverts when the recipient is the zero address
+mint reverts when the recipient is blacklisted
+mint increases total supply by exactly the requested amount
+burn reverts when the caller is blacklisted
+burn destroys exactly the requested amount from the caller
+burnFrom reverts when the operator is blacklisted
+burnFrom reverts when the account being burned from is blacklisted
+burnFrom spends the operator's allowance before destroying the tokens
+pause reverts when the caller is not the owner
+pause blocks every transfer, mint and burn while it is active
+unpause reverts when the caller is not the owner
+unpause restores transfers to their normal behaviour
+blacklist reverts when the caller is not the blacklister
+blacklist reverts on the zero address
+blacklist stops the account from sending tokens
+blacklist stops the account from receiving tokens
+blacklist emits Blacklisted naming the account
+unBlacklist clears the flag and emits UnBlacklisted
+updateBlacklister reverts when the caller is not the owner
+updateBlacklister reverts on the zero address
+updateBlacklister moves the role and emits BlacklisterChanged
+isBlacklisted reports the current state for any address
+approve reverts when the token owner is blacklisted
+approve reverts when the spender is blacklisted
+permit reverts once the signature deadline has passed
+permit reverts when the recovered signer is not the stated owner
+[...excerpt ends]"
+CB-172,,Non-zero allowance resets expose users to old-plus-new allowance spending,QuillAudits__RapidDex_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,rapiddex,2026-08-25,no,no,2026-11,Medium,"Medium Severity Issues
+Medium Severity Issues
+Non-zero allowance resets expose users to old-plus-new
+allowance spending
+Resolved
+Path
+WMST.sol, TestToken.sol
+Function Name
+approve(), transferFrom()
+Description
+Both tokens allow a non-zero allowance to be overwritten with another non-zero allowance.
+Impact
+With a sandwich operation, an approved spender can spend the old allowance before the reset lands,
+then spend the new allowance after it lands.
+Recommendation
+Require non-zero allowance changes to pass through zero, or expose safer increase and decrease
+allowance flows with SafeERC20.
+17
+www.quillaudits.com
+
+RapidDex - Audit Report
+Medium Severity Issues
+Medium Severity Issues
+LP NFT metadata is globally mutable after mint
+Resolved
+Path
+MinimalPositionDescriptor.sol
+Function Name
+setBaseDescription(), tokenURI()
+Description
+All LP NFT metadata is derived from one owner-controlled _baseDescription.
+Impact
+Older LP NFTs can have their displayed metadata changed after mint, weakening metadata integrity for
+users and indexers.
+Recommendation
+Remove metadata mutation or add a one-way freeze mechanism and document when metadata
+becomes final.
+18
+www.quillaudits.com
+
+RapidDex - Audit Report
+Medium Severity Issues
+Medium Severity Issues
+Unbounded tMUSD minting is controlled by a single
+externally owned account
+Acknowledged
+Path
+TestToken.sol
+Function Name
+constructor(), mint(), owner(), blacklister()
+Description
+tMUSD has uncapped owner minting. The deployed owner is an EOA and also controls the blacklist,
+factory, LP storage, and descriptor admin roles.
+Impact
+A compromised or misused key can mint arbitrary tMUSD, swap it through live pools, and extract paired
+assets such as WMST.
+Recommendation
+Move privileged roles to a multisig or timelock, separate admin duties, and add a mint cap or rate limit.
+19
+www.quillaudits.com
+
+RapidDex - Audit Report
+Low Severity Issues
+Low Severity Issues
+Paused tMUSD still permits approval and permit state changes
+Resolved
+Path
+TestToken.sol, ERC20Pausable.sol, ERC20Permit.sol
+Function Name
+approve(), permit(), _approve(), _update()
+Description
+Pause only blocks _update(). Allowance changes through approve() and permit() remain available.
+Impact
+Spending permissions can be staged during an emergency pause and used once the token is unpaused.
+Recommendation
+Either pause approval and permit paths too, or document that pause only stops token movement.
+20
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+unBlacklist() emits removal events for accounts that are not
+blacklisted
+Resolved
+Path
+TestToken.sol
+Function Name
+unBlacklist()
+Description
+unBlacklist() emits UnBlacklisted even when the account was not blacklisted.
+Recommendation
+Require the account to be blacklisted before clearing the flag and emitting the event.
+21
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+WMST.totalSupply() can drift from tracked user balances after
+forced native transfers
+Resolved
+Path
+WMST.sol
+Function Name
+totalSupply(), deposit(), withdraw()
+Description
+totalSupply() returns the contract's native balance instead of tracked wrapped balances.
+Recommendation
+Confirm this WETH-style drift is accepted, or track supply explicitly in deposit() and withdraw().
+22
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+Use of inconsistent one-step and two-step ownership patterns
+Resolved
+Path
+TestToken.sol, MinimalPositionDescriptor.sol, LPStateStorage.sol
+Function Name
+transferOwnership(), acceptOwnership(), updateBlacklister()
+Description
+Some admin roles use two-step transfer, while others update authority in one transaction. A wrong
+address can permanently receive sensitive permissions such as minting, pausing, metadata control, or
+blacklist control.
+Recommendation
+Use a consistent two-step acceptance flow for ownership and blacklist authority.
+23
+www.quillaudits.com
+
+RapidDex - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+README deployment addresses are not generated from the
+verified deployment mapping
+Resolved
+Path
+README.md
+Function Name
+–
+Description
+The README maps contract names to the wrong MST Testnet addresses. The deployed bytecode
+matches the repo, but the labels are permuted.
+WMST                 | 0xCa626248811DaD64F8284Ea63a11C2A4078795BC
+tMUSD (tMUSDC)       | 0x7f64380eAb3e93ceA8aEA7D51294F83e5f067458
+V3 Factory           | 0xD02BB60b01cB1DDca2Af9183499958E5494598f5
+Position Descriptor  | 0xe87FAAcbF4df86B2459937c1e8C71AB4810eFA9a
+Position Manager     | 0x45F540Ccd263b1511a8c3C02bcB5E64876577Ad6
+Swap Router          | 0x0D24EC10272D6081E4b95e0D3F4B03ba8a43c605
+Quoter V2            | 0xA570f13D675E05a2916885f7236ED88BeF151488
+LP State Storage     | 0xE530b2B61C0C6243502dF49A93A0622aCDa6AFC7
+Recommendation
+Regenerate the address table from a canonical deployment manifest and verify each address against
+runtime bytecode before release.
+WMST                       | 0x7f64380eAb3e93ceA8aEA7D51294F83e5f067458
+tMUSD (tMUSDC)             | 0xA570f13D675E05a2916885f7236ED88BeF151488
+RapiddexV3Factory          | 0xE530b2B61C0C6243502dF49A93A0622aCDa6AFC7
+MinimalPositionDescriptor  | 0xCa626248811DaD64F8284Ea63a11C2A4078795BC
+NonfungiblePositionManager | 0x0D24EC10272D6081E4b95e0D3F4B03ba8a43c605
+SwapRouter                 | 0x45F540Ccd263b1511a8c3C02bcB5E64876577Ad6
+QuoterV2                   | 0xe87FAAcbF4df86B2459937c1e8C71AB4810eFA9a
+LPStateStorage             | 0xD02BB60b01cB1DDca2Af9183499958E5494598f5
+24
+www.quillaudits.com
+
+RapidDex - Audit Report
+Functional Tests
+Functional Tests
+WMST
+deposit credits the sender's wrapped balance by exactly the native value sent
+deposit emits Deposit naming the sender and the amount
+deposit reverts when the native value sent is zero
+receive routes a plain native transfer into deposit
+receive reverts on a zero-value plain transfer
+withdraw reverts when the caller asks for more than their wrapped balance
+withdraw debits the balance before sending native back to the caller
+withdraw emits Withdrawal before the native transfer is attempted
+withdraw reverts if the native transfer back to the caller fails
+withdraw blocks a receiver that re-enters withdraw during the native transfer
+withdraw of the full balance leaves the caller at zero and keeps the lock released
+withdraw of zero succeeds and moves no value
+transfer moves the balance between two accounts and emits Transfer
+transfer to the zero address reverts
+transfer routes through transferFrom without consuming any allowance
+transferFrom spends allowance when the spender is not the source account
+transferFrom leaves an infinite allowance unchanged after a spend
+transferFrom reverts when the allowance is below the requested amount
+transferFrom reverts when the source balance is below the requested amount
+approve overwrites any previous allowance and emits Approval
+totalSupply equals the contract's own native balance
+[...excerpt ends]"
+CB-190,,L-08 getUserRedemptionAmount quotes payouts that will not be made,QuillAudits__Tradevu_Smart_Contract_Audit_Report_-_QuillAudits.pdf,QuillAudits,tradevu,2026-09-30,no,no,2026-11,Low,"Low Severity Issues
+Low Severity Issues
+L-08
+getUserRedemptionAmount quotes payouts that will
+not be made
+Resolved
+Path
+TradevuEscrow.sol
+Function Name
+getUserRedemptionAmount()
+Description
+getUserRedemptionAmount computes a holder's share and fee but ignores the pool balance, the claim
+window and whether the offering has been swept. It keeps quoting the full payout after the window has
+closed and the pool has been swept, when redemption can only revert. When the pool is short (issue 6),
+it quotes more than redeemBillTokens pays. Before funding it returns 0, which is indistinguishable from
+""nothing owed"".
+Impact
+Low
+Low. Front ends and integrations that rely on the quote show holders amounts they cannot receive.
+Likelihood
+Medium
+Recommendation
+Make the quote reflect what redemption would actually pay at that moment, including the pool balance,
+the claim window and settlement state, or document clearly that it is only an upper bound.
+Tradevu Team's Comment
+Fixed.
+35
+www.quillaudits.com
+
+Tradevu - Audit Report
+Low Severity Issues
+Low Severity Issues
+L-09
+Unclaimed redemptions are swept to adminWallet
+with no grace period
+Acknowledged
+Path
+TradevuEscrow
+Function Name
+claimWindow
+Description
+The claim window opens when the issuer funds redemption and lasts claimWindow seconds. Once it
+ends, redeemBillTokens reverts with ClaimTimeEnded, and the issuer can sweep everything left in the
+pool to adminWallet. There is no grace period, no extension and no later claim path.
+A holder who does not redeem in time loses the entire payout, and it becomes protocol revenue instead
+of remaining claimable. Holders who acquired tokens by transfer may not know when funding happened,
+and Token.initialize only requires claimWindow > 0, so a window can be as short as one second.
+Impact
+Medium
+Medium for the affected holders: their entire redemption value moves to adminWallet.
+Likelihood
+Low
+Low. A holder has to miss the window; this becomes more likely with short windows or with holders who
+received tokens by transfer.
+Recommendation
+Guarantee holders a reasonable minimum claim period and some way to claim after it closes, for
+example by keeping unclaimed balances in a reserve holders can still draw from, rather than converting
+them into protocol revenue.
+Tradevu Team's Comment
+Acknowledged. User has to redeem till claim window time.
+36
+www.quillaudits.com
+
+Tradevu - Audit Report
+Low Severity Issues
+Low Severity Issues
+L-10
+Investors lose the rounding remainder of every order
+Resolved
+Path
+TradevuEscrow.sol
+Description
+An order's allocation is amount × 10^decimals / issuePrice, rounded down, but the issuer receives the
+full amount, and redemption pays only for the tokens actually minted. The remainder, worth less than
+one token unit per order, goes to the issuer with no matching entitlement for the investor, who also pays
+the investment fee on it.
+At 18 decimals this is negligible, but with few decimals it becomes material. With a 0-decimal token
+priced at 5 USDC, a 102 USDC order mints 20 tokens (100 USDC worth), and the extra 2 USDC is lost to
+the investor.
+Impact
+Low
+Low. Negligible with high token decimals; up to one token's price per order with low decimals.
+Likelihood
+High
+Recommendation
+Only accept order amounts that convert exactly into token units, or return the unallocated remainder to
+the investor.
+Tradevu Team's Comment
+Applied the first recommendation i.e. Only accept order amounts that convert exactly into token
+units.
+37
+www.quillaudits.com
+
+Tradevu - Audit Report
+Low Severity Issues
+Low Severity Issues
+L-11
+A cancelled order makes the issuer's reject batch revert
+Resolved
+Path
+TradevuEscrow.sol
+Function Name
+rejectOrder(), cancelOrder()
+Description
+In the fix review at commit ( b74b0ae ), we noted that the new function
+cancelOrder marks the order resolved meanwhile rejectOrder in a batch loop reverts on a resolved
+order:
+// cancelOrder
+order.resolved = true;
+// rejectOrder, inside the batch loop
+if (order.resolved) revert OrderAlreadyResolved();
+An investor can cancel once maturityDate + CANCEL_GRACE has passed. If the issuer's batch of up to
+100 IDs includes an order the investor cancels first, the whole batch reverts.
+Impact
+The issuer has to find the cancelled ID and resubmit without it. Other investors' refunds are delayed until
+then. No funds are lost, and the investor who cancelled gets their money back.
+Likelihood
+Medium
+Medium once the grace period has passed with unresolved orders; low before.
+POC
+1. Two investors place 500 USDC orders an and b. Time moves past maturity plus 7 days.
+2. The investor of a calls cancelOrder(""a"").
+3. The issuer calls rejectOrder([""a"",""b""]). It reverts with OrderAlreadyResolved.
+4. The issuer calls rejectOrder([""b""]). It succeeds.
+38
+www.quillaudits.com
+
+Tradevu - Audit Report
+Low Severity Issues
+L-11
+A cancelled order makes the issuer's reject batch revert 
+Recommendation
+Use the order's own amount as the marker, with no new variable. cancelOrder already holds the amount
+in a local, so it zeroes the stored one after setting the resolved flag, and rejectOrder skips an order that
+is resolved and has zero amount:
+// cancelOrder, after order.resolved = true;
+order.amount = 0;
+// rejectOrder, replacing the OrderAlreadyResolved revert in the loop
+if (order.resolved) {
+    if (order.amount == 0) continue;   // cancelled by its owner: nothing left to refund
+    revert OrderAlreadyResolved();
+}
+Tradevu Team's Comment
+Fixed.
+(continued)
+39
+www.quillaudits.com
+
+Tradevu - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+I-01
+README points to a deployment helper that does not
+exist
+Resolved
+Path
+README points to a deployment helper that does not exist
+Description
+The README says the initData passed to deployToken is ABI-encoded off-chain, and links to
+script/encodeData.js. That file is not in the repository; script/ contains only deploy.js. Integrators
+therefore have no reference for building correct Token.initialize data, which the factory executes without
+validating it.
+Recommendation
+Add the referenced helper or document the encoding in the README.
+Tradevu Team's Comment
+Fixed
+40
+www.quillaudits.com
+
+Tradevu - Audit Report
+Informational Severity Issues
+Informational Severity Issues
+I-02
+The published interface does not match the escrow
+Resolved
+Path
+ITradevuEscrow.sol, IToken.sol, TradevuEscrow.sol
+Description
+ITradevuEscrow.OrderDetails lists user before token and adds an orderRedeemed flag. getOrder, however,
+returns (token, user, amount, resolved), and no redeemed flag exists anywhere. Both fields are
+addresses, so a consumer that decodes getOrder using the interface struct's field order silently swaps
+them.
+The interfaces also declare errors that are never used. On the escrow: OrderAlreadyRedeemed,
+UserAmountMismatch and MoreThanMaxPerUser. On the token: NotTransferrable,
+DiscountBillAmountOvershoot and MoreThanMaxPerUser. They describe behaviour the contracts do not
+have: per-order redemption tracking, a per-investor cap and non-transferable tokens. A repeated
+[...excerpt ends]"
+CB-240,FR-387,Governance-selected exact call value relaxes the timelock guarantee,Zellic__Flare_Relay_Network_Diff_-_Zellic_Audit_Report.pdf,Zellic,flare,2026-08-25,no,yes,2026-09,Low,"September 14, 2026
+2.2.
+Governance-selected exact call value relaxes the timelock guarantee
+Target
+FlareGovernedBase, FlareGovernance
+Category
+Business Logic
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+In order to support the payment of native value to governance-call targets, this diff added the
+payablemodifiertothe executeGovernanceCallfunction, implementedinthegovernancetimelock
+abstract contract. At execution time, this forwards the given value to the call:
+/**
+* Execute a timelocked governance call.
+* @param _encodedCall The full encoded call data (hash verified against
+stored hash).
+*/
+// False positive: slither sees the library alone, not its one caller,
+// `FlareGovernedBase.executeGovernanceCall`, which is `external payable`.
+//slither-disable-next-line msg-value-in-nonpayable
+function executeGovernanceCall(
+bytes calldata _encodedCall
+)
+internal
+{
+// [...]
+state.executing = true;
+// Forward any attached value so payable governance methods can receive
+funds at
+// execution time; a non-payable target rejects it, reverting the
+execution.
+//solhint-disable-next-line avoid-low-level-calls
+(bool success,) = address(this).call(_encodedCall);
+(bool success,) = address(this).call{value: msg.value}(_encodedCall);
+state.executing = false;
+emit IFlareGovernance.TimelockedGovernanceCallExecuted(callHash);
+_passReturnOrRevert(success);
+}
+Zellic © 2026
+Page 9 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+This means that the amount of native value sent with the call is decided at execution time, instead of
+when the call is timelocked.
+Impact
+This relaxes the timelock guarantee a little. The amount of native value to send through the time-
+locked call can change what the call does, especially if the call target branches on the amount of
+native value it receives.
+The current impact is minimal, because the only timelocked functions that take native value are ones
+that use it on a fee. For these, the fee is either paid or unpaid, and so the timelock itself does mean-
+ingfully commit the contract to a specific action.
+Recommendations
+There is no clean way to resolve this, because of two considerations. Currently, there is a UX con-
+venience where governance calls that become timelocked can be issued by calling the function
+normally, rather than having to encode the calldata and then call a general function. The second
+consideration is that the contract should not, in general, store native value between transactions. If
+both considerations are kept, then committing to an amount of native value for the duration of the
+timelock would require storing it in a separate contract maintained by the FlareGovernance abstract
+contract.
+If additional payable governance timelocked functions are planned, then we recommend revisiting
+this design choice to ensure that end users still benefit from the same degree of timelock guaran-
+tees.
+Remediation
+This issue has been acknowledged by Flare, and a fix was implemented in commit cbd3b8e1 ↗. This
+commit documents the behavior, clarifying that the choice of value escapes being timelocked.
+Zellic © 2026
+Page 10 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+2.3.
+Protocol message events can contain a noncanonical boolean
+Target
+Relay
+Category
+Business Logic
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+The relay function parses isSecureRandom as a byte from the packed protocol message. For pro-
+tocol IDs greater than 1, it does not reject values outside {0, 1}. The signed digest commits to the
+raw message bytes, so a message containing a noncanonical value can be accepted if the required
+signing quorum signs those exact bytes and the other relay checks pass.
+The randomNumberProtocolId path normalizes the byte using iszero(iszero(...)) before using
+it in the random-number proof, storage, and events. However, the other protocol-finalization path
+copies the masked byte directly into event data:
+mstore(add(memPtrFor, M_5_isSecureRandom),
+structValue(
+mload(memPtrFor),
+MSG_NMR_BOFF_isSecureRandom,
+MSG_NMR_MASK_isSecureRandom
+)
+)
+mstore(add(memPtrFor, M_3), ""ProtocolMessageRelayed(uint8,uin"")
+mstore(add(memPtrFor, M_4), ""t32,bool,bytes32)"")
+log3(
+add(memPtrFor, M_5_isSecureRandom), 64, keccak256(add(memPtrFor, M_3), 49),
+protocolId, votingRoundId
+)
+Themask MSG_NMR_MASK_isSecureRandomis 0xff,soitpreservesvaluessuchas 2. Although Proto-
+colMessageRelayeddeclares isSecureRandomas bool,theassembly log3bypassesSolidity'sevent
+encoder and emits the value unchanged. This violates the ABI encoding requirement for booleans,
+which permits only 0 and 1.
+Impact
+If a quorum signs a message with an isSecureRandom byte above 1 for a protocol other than ran-
+domNumberProtocolId, the relay can finalize the Merkle root while emitting a log that strict ABI de-
+coders reject. An indexer relying on decoded ProtocolMessageRelayed events may therefore fail to
+Zellic © 2026
+Page 11 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+process that finalization or interrupt log ingestion, depending on its error handling.
+Recommendations
+We recommend rejecting any isSecureRandom byte above 1 during protocol-message parsing.
+Remediation
+This issue has been acknowledged by Flare, and a fix was implemented in commit e583bb72 ↗.
+Zellic © 2026
+Page 12 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+2.4.
+The arbitrary-calldata self-call in _verifyCustomSignature could become
+dangerous
+Target
+Relay
+Category
+Code Maturity
+Severity
+Informational
+Likelihood
+N/A
+Impact
+Informational
+Description
+The verifyCustomSignature and verifyCustomSignatureWithThreshold functions have a _re-
+layMessage argument which is entirely caller-controlled. These functions then call _verifyCustom-
+Signature which does a self-call with that calldata:
+function _verifyCustomSignature(
+bytes calldata _relayMessage,
+bytes32 _messageHash
+) internal returns (uint256 _rewardEpochId) {
+/* solhint-disable avoid-low-level-calls */
+//slither-disable-next-line arbitrary-send-eth
+(bool success, bytes memory returnData)
+= address(this).call(_relayMessage);
+/* solhint-enable avoid-low-level-calls */
+require(success, VerificationFailed());
+// The 35-byte return length (32-byte hash plus 3-byte reward epoch id)
+uniquely identifies
+// relay()'s protocolId == 1 path; every other path returns no data or
+reverts. Changes to
+// relay() return formats must preserve this discriminator or replace it
+with a typed one.
+require(returnData.length == 35, WrongVerificationData());
+bytes32 returnHash;
+uint256 returnRewardEpochId;
+// solhint-disable-next-line no-inline-assembly
+assembly {
+returnHash := mload(add(returnData, 0x20))
+returnRewardEpochId := shr(sub(256, mul(8, REWARD_EPOCH_ID_BYTES)),
+mload(add(returnData, 0x40)))
+}
+require(bytes32(returnHash) == _messageHash, InvalidConfigHash());
+return returnRewardEpochId;
+}
+Zellic © 2026
+Page 13 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+[...excerpt ends]"
+CB-239,FR-386,Merkle verificationdelegated to the old relay accepts a zero leaf for unfinalized rounds,Zellic__Flare_Relay_Network_Diff_-_Zellic_Audit_Report.pdf,Zellic,flare,2026-08-25,no,yes,2026-09,Low,"Detailed Findings
+2.1.
+Merkle verificationdelegated to the old relay accepts a zero leaf for unfinalized
+rounds
+Target
+Relay
+Category
+Coding Mistakes
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+This diff hardened the local branch of the verify() function in Relay so that a voting round without
+a finalized root can no longer serve as a verification target. The stored root is read first and rejected
+when it is zero:
+bytes32 root = merkleRootsPrivate[_protocolId][_votingRoundId];
+require(root != bytes32(0), NotFinalized());
+require(_proof.verifyCalldata(root, _leaf), MerkleProofInvalid());
+The guard is necessary because MerkleProof.processProofCalldata returns the leaf unchanged
+when the proof is empty, which reduces verifyCalldata to an equality test between the leaf and
+the root. A caller supplying a zero leaf and an empty proof therefore matches the zero root that every
+unfinalized round holds.
+However, the branch taken before it, which serves rounds below the migration boundary out of
+the previously deployed relay, carries no equivalent guard. It forwards the caller's arguments un-
+changed and only requires that the delegated verification call return true:
+if (address(oldRelay) != address(0) && _votingRoundId <
+startingVotingRoundIdForInitialRewardEpochId) {
+// [...]
+bool ok = oldRelay.verify(_protocolId, _votingRoundId, _leaf, _proof);
+require(ok, OldRelayVerificationFailed());
+// [...]
+return true;
+}
+The legacy relay implementation does not enforce a finalization check of its own. It verifies proofs
+directly against the stored root without checking that it is nonzero. Consequently, a caller can se-
+lect an unfinalized round below the migration boundary, supply _leaf = bytes32(0) and an empty
+_proof, and obtain true from verify().
+Zellic © 2026
+Page 7 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+Impact
+For voting round below the migration boundary that holds no root, the Relay can report a successful
+verification for a zero leaf that no signing policy ever committed to, so the finalization guarantee the
+interface documents does not hold on historical rounds.
+The demonstrated bypass is limited to a zero leaf with an empty proof against a zero root. It does not
+establish arbitrary nonzero leaf forgery. Consumers that derive their leaf as the hash of an encoded
+payload are therefore unaffected in practice.
+Recommendations
+We recommend gating the delegated branch on the old relay's own finalization view before forward-
+ing the proof, which mirrors the invariant the local branch enforces:
+require(oldRelay.isFinalized(_protocolId, _votingRoundId), NotFinalized());
+bool ok = oldRelay.verify(_protocolId, _votingRoundId, _leaf, _proof);
+require(ok, OldRelayVerificationFailed());
+Remediation
+This issue has been acknowledged by Flare, and a fix was implemented in commit 53056a45 ↗.
+Zellic © 2026
+Page 8 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+2.2.
+Governance-selected exact call value relaxes the timelock guarantee
+Target
+FlareGovernedBase, FlareGovernance
+Category
+Business Logic
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+In order to support the payment of native value to governance-call targets, this diff added the
+payablemodifiertothe executeGovernanceCallfunction, implementedinthegovernancetimelock
+abstract contract. At execution time, this forwards the given value to the call:
+/**
+* Execute a timelocked governance call.
+* @param _encodedCall The full encoded call data (hash verified against
+stored hash).
+*/
+// False positive: slither sees the library alone, not its one caller,
+// `FlareGovernedBase.executeGovernanceCall`, which is `external payable`.
+//slither-disable-next-line msg-value-in-nonpayable
+function executeGovernanceCall(
+bytes calldata _encodedCall
+)
+internal
+{
+// [...]
+state.executing = true;
+// Forward any attached value so payable governance methods can receive
+funds at
+// execution time; a non-payable target rejects it, reverting the
+execution.
+//solhint-disable-next-line avoid-low-level-calls
+(bool success,) = address(this).call(_encodedCall);
+(bool success,) = address(this).call{value: msg.value}(_encodedCall);
+state.executing = false;
+emit IFlareGovernance.TimelockedGovernanceCallExecuted(callHash);
+_passReturnOrRevert(success);
+}
+Zellic © 2026
+Page 9 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+This means that the amount of native value sent with the call is decided at execution time, instead of
+when the call is timelocked.
+Impact
+This relaxes the timelock guarantee a little. The amount of native value to send through the time-
+locked call can change what the call does, especially if the call target branches on the amount of
+native value it receives.
+The current impact is minimal, because the only timelocked functions that take native value are ones
+that use it on a fee. For these, the fee is either paid or unpaid, and so the timelock itself does mean-
+ingfully commit the contract to a specific action.
+Recommendations
+There is no clean way to resolve this, because of two considerations. Currently, there is a UX con-
+venience where governance calls that become timelocked can be issued by calling the function
+normally, rather than having to encode the calldata and then call a general function. The second
+consideration is that the contract should not, in general, store native value between transactions. If
+both considerations are kept, then committing to an amount of native value for the duration of the
+timelock would require storing it in a separate contract maintained by the FlareGovernance abstract
+contract.
+If additional payable governance timelocked functions are planned, then we recommend revisiting
+this design choice to ensure that end users still benefit from the same degree of timelock guaran-
+tees.
+Remediation
+This issue has been acknowledged by Flare, and a fix was implemented in commit cbd3b8e1 ↗. This
+commit documents the behavior, clarifying that the choice of value escapes being timelocked.
+Zellic © 2026
+Page 10 of 26
+
+Flare Relay Network Diff Smart Contract Patch Review
+September 14, 2026
+2.3.
+Protocol message events can contain a noncanonical boolean
+Target
+Relay
+Category
+Business Logic
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+The relay function parses isSecureRandom as a byte from the packed protocol message. For pro-
+tocol IDs greater than 1, it does not reject values outside {0, 1}. The signed digest commits to the
+raw message bytes, so a message containing a noncanonical value can be accepted if the required
+signing quorum signs those exact bytes and the other relay checks pass.
+The randomNumberProtocolId path normalizes the byte using iszero(iszero(...)) before using
+it in the random-number proof, storage, and events. However, the other protocol-finalization path
+copies the masked byte directly into event data:
+mstore(add(memPtrFor, M_5_isSecureRandom),
+structValue(
+mload(memPtrFor),
+MSG_NMR_BOFF_isSecureRandom,
+[...excerpt ends]"
+CB-252,,Remote-hop sends accept unusable final recipients hidden from OFT valida- tion,Zellic__frxUSD_Ecosystem_-_Zellic_Audit_Report.pdf,Zellic,frax,2026-09-23,no,yes,2026-10,Low,"October 19, 2026
+3.6.
+Remote-hop sends accept unusable final recipients hidden from OFT valida-
+tion
+Target
+RemoteHopV201Tempo, HopV201Tempo, and
+TempoFeeInclusiveWrapper
+ID
+ZELLIC-CWSWSK
+Category
+Integration Risks
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+The RemoteHopV201Tempo.sendOFT function copies the caller-supplied final recipient into
+HopMessage and pulls principal without validating that recipient:
+HopMessage memory hopMessage = HopMessage({
+srcEid: $.localEid,
+dstEid: _dstEid,
+dstGas: _dstGas,
+sender: bytes32(uint256(uint160(msg.sender))),
+recipient: _recipient,
+data: _data
+});
+_amountLD = removeDust(_oft, _amountLD);
+if (_amountLD > 0) ITIP20(IOFT(_oft).token()).transferFrom(msg.sender,
+address(this), _amountLD);
+No hop or wrapper entry point rejects bytes32(0) or a nonzero value whose low 160 bits decode
+to address(0). The outcome depends on the route:
+• A same-chain local send reaches _sendLocal and reverts atomically.
+• An empty-data remote route eventually uses the final recipient as an outer OFT
+SendParam.to, exposing the transport-layer failure described separately.
+• A data-bearing route addresses the OFT message to a valid hop and keeps the final
+recipient inside HopMessage. Destination credit succeeds, but later lzCompose retries all
+revert when _sendLocal decodes the nested recipient to zero.
+An outer OFT recipient check cannot detect the composed case because the OFT sees only the
+valid hop address.
+Zellic © 2026
+←Back to Contents
+Page 27 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+Impact
+The initiating caller can commit its principal to an unusable remote intent. On a composed route,
+principal remains credited to the destination hop while the immutable nested recipient causes
+every compose retry to fail; recovery or compensation then requires administrator action.
+The caller chooses the recipient and funds the transfer. No path was found to alter another user's
+recipient or debit a passive holder.
+Recommendations
+Validate the final recipient consistently in hop and wrapper quote/send paths, before any token
+pull or fee collection. Reject bytes32(0) universally, and reject low-160-bit-zero values when the
+final destination is EVM.
+Also validate before _sendLocal as defense in depth. Messages already in flight need a
+claim-directed cancellation or refund path because OFT _credit validation cannot inspect a
+recipient nested in compose data.
+Remediation
+This issue has been acknowledged by Frax, and fixes were implemented in the following commits:
+• 8ef37e72 ↗
+• 1be0b1ca ↗
+Zellic © 2026
+←Back to Contents
+Page 28 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+3.7.
+UniV2step pricesfee-on-transfer and rebasing inputs atthe nominal amount,
+causing route reverts
+Target
+FraxswapRouterMultihopV2
+ID
+ZELLIC-6249V4
+Category
+Integration Risks
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+Note: This finding was discovered by Frax during remediation.
+The FraxswapExecutorV2.stepUniV2() function computes the output from the step's nominal
+amountIn, transfers that amount to the pair, and then calls swap() with the precomputed output:
+amountOut = getAmountOut(amountIn, zeroForOne ? reserve0 : reserve1,
+zeroForOne ? reserve1 : reserve0, feeBps);
+if (flags & 16 == 0) TransferHelper.safeTransfer(tokenIn, target, amountIn);
+IUniswapV2Pair(target).swap(/* amountOut computed above */);
+The same applies when the pair quotes through getAmountOut(amountIn, tokenIn), which is
+also called with the nominal amount.
+When tokenIn is a fee-on-transfer token, or a rebasing token that delivers 1 to 2 wei less (such as
+stETH), the pair receives less than amountIn. The output was priced for the larger amount, so the
+pair's invariant check fails and swap() reverts.
+The route's measure flag does not help. It only changes the swap's basis amount to the executor's
+actual balance, and the executor-to-pair transfer inside the step is still taxed. In two other cases,
+there is no executor balance to measure at all:
+1. Direct-funded first swap. The router pulls the user's tokens straight into the first pair.
+With the measure flag set, the executor balance is 0 and the step is skipped, so the
+route reverts with FSE:IO.
+2. Pair-to-pair chain. The previous pair sends its output straight to the next pair through a
+receiver override. The credited amount is the nominal output, but the next pair receives
+less.
+For rebasing tokens on the default funding path, the executor receives amountIn - 1 from the
+router and then tries to forward amountIn, which fails with a balance revert. For 1-wei shortfalls,
+the invariant check only fails when 1 wei of input is worth about 1 wei of output or more.
+Zellic © 2026
+←Back to Contents
+Page 29 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+The contract documentation states that the measure flag is ""needed for fee-on-transfer tokens"",
+which stepUniV2() cannot deliver.
+Impact
+Routes whose UniV2 step takes a fee-on-transfer token, or a short-delivering rebasing token, as
+input always revert, regardless of the measure flag. No funds are lost, because the revert rolls
+back the whole transaction. These tokens cannot be swapped through UniV2-style steps, contrary
+to what the documentation implies. Users must use another route, for example a generic call step
+to a router that supports fee-on-transfer tokens.
+Recommendations
+Price the input from what the pair actually received. In stepUniV2(), send the input first (unless
+the pair is already funded), and then derive amountIn from the pair's tokenIn balance above its
+stored reserves, and quote and call swap() with that amount. This also covers direct funding and
+receiver overrides, because the amount is measured at the pair. For Fraxswap pairs, run
+executeVirtualOrders first and subtract the TWAMM reserves, since the pair holds the input
+token of pending long-term orders. Consider rejecting this mode on a Fraxswap pair without
+executeVirtualOrders, which would overstate amountIn and revert.
+Remediation
+This issue has been acknowledged by Frax, and a fix was implemented in commit 488caac2 ↗.
+Zellic © 2026
+←Back to Contents
+Page 30 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+3.8.
+Custodian owners can recover active backing while liabilities remain
+Target
+FrxUSDCustodianBase, FrxUSDCustodian, FrxUSDCustodianWithOracle
+ID
+ZELLIC-B8ABDX
+Category
+Protocol Risks
+Severity
+Informational
+Likelihood
+N/A
+Impact
+Informational
+Description
+The custodians inherit an owner-only recovery function that can transfer any ERC-20 token,
+including the active custodianTkn, without reducing frxUSDMinted:
+function recoverERC20(address token, uint256 amount) external onlyOwner {
+SafeERC20.safeTransfer(IERC20(token), owner(), amount);
+}
+Normal redemption burns frxUSD and decreases frxUSDMinted before transferring backing.
+Recovery bypasses both steps. Because maxRedeem is capped by the remaining token balance, full
+recovery can leave liability unchanged while reducing redeemable capacity to zero.
+[...excerpt ends]"
+CB-250,,Unbounded minters_array growth can prevent minter removal,Zellic__frxUSD_Ecosystem_-_Zellic_Audit_Report.pdf,Zellic,frax,2026-09-23,no,yes,2026-10,Low,"October 19, 2026
+3.4.
+Unbounded minters_array growth can prevent minter removal
+Target
+FrxUSD
+ID
+ZELLIC-VTXKC7
+Category
+Code Maturity
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+The addMinter function appends every newly authorized minter to minters_array. The
+removeMinter function clears authorization in the mapping, linearly scans the complete array, and
+replaces the matching entry with an address(0) tombstone:
+minters[minter_address] = true;
+minters_array.push(minter_address);
+for (uint256 i = 0; i < minters_array.length; i++) {
+if (minters_array[i] == minter_address) {
+minters_array[i] = address(0);
+break;
+}
+}
+Removed slots are never reused. Repeated add-and-remove cycles therefore increase the array
+length and the worst-case scan cost for later entries. The minters mapping remains the
+authoritative authorization state; the array contains zero-address tombstones.
+Impact
+Only the privileged timelock can grow the array, and the reviewed live length was 10, so there is no
+immediate gas-limit failure. With sufficient historical growth, however, removing a compromised
+late-index minter can exceed the block gas limit. The transaction then reverts, including the
+mapping deletion, preventing revocation.
+Recommendations
+Use an address-to-index mapping with bounded deletion, or reuse tombstoned slots if stable
+indexes are required. Also cap and monitor the array length, and retain a mapping-only
+emergency revocation path whose cost does not depend on historical entries.
+Document that minters is authoritative and zero array entries are tombstones.
+Zellic © 2026
+←Back to Contents
+Page 23 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+Remediation
+This issue has been acknowledged by Frax.
+Zellic © 2026
+←Back to Contents
+Page 24 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+3.5.
+A block-scoped oracle cache can outlive feed, scale, and validity changes
+Target
+FrxUSDCustodianWithOracle
+ID
+ZELLIC-NTTVDX
+Category
+Business Logic
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+Each state-changing conversion stores one raw oracle answer for the remainder of the block.
+Every later conversion in that block returns the stored value without checking whether the
+configured feed, answer, round, decimal scale, or freshness policy changed:
+if (lastOracleUpdate == block.number) {
+return lastSavedOraclePrice;
+}
+This creates several same-block inconsistencies:
+• The setCustodianOracle function changes the feed and oracleDecimals without
+invalidating the cached raw answer. The old feed's answer can therefore be interpreted
+using the new feed's decimal scale.
+• An eligible caller can prime the cache with a zero-amount conversion before the
+existing feed changes its answer. Later conversions in the same block continue to use
+the old answer.
+• Tightening maximumOracleDelay or replacing a stale feed does not revalidate an
+answer already cached in that block.
+A searcher can order a zero-amount cache prime before a feed or owner update and execute a
+favorable conversion after that update in the same block.
+Impact
+After an otherwise valid feed, answer, or freshness-policy change, a permissionless searcher can
+convert against stale or incorrectly scaled pricing. A different-scale migration can expose the
+transferable reserve or remaining mint capacity; same-feed and delay changes can also produce
+favorable stale conversions.
+A fork reproduction primed the cache, installed an economically equivalent feed with a different
+scale, and withdrew the full sampled reserve with 1 frxUSD. Separate proofs covered same-feed
+repricing and delay tightening. The required owner-approved migration or same-block feed
+update makes the trigger rare, but demonstrated loss can be reserve-scale.
+Zellic © 2026
+←Back to Contents
+Page 25 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+Recommendations
+Do not persist a raw oracle answer across transactions based only on block.number. Read the
+feed once per deposit, mint, withdraw, or redeem and pass one coherent (oracle, decimals,
+answer) snapshot through that execution.
+If caching is retained, bind it to the oracle address, decimal scale, freshness delay, and feed round
+or update fingerprint. Refresh that tuple atomically on every oracle-policy change, and test
+same-feed updates, delay tightening, and decimal rotations around a zero-amount cache prime.
+Remediation
+This issue has been acknowledged by Frax, and a fix was implemented in commit 99df4a09 ↗.
+Zellic © 2026
+←Back to Contents
+Page 26 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+3.6.
+Remote-hop sends accept unusable final recipients hidden from OFT valida-
+tion
+Target
+RemoteHopV201Tempo, HopV201Tempo, and
+TempoFeeInclusiveWrapper
+ID
+ZELLIC-CWSWSK
+Category
+Integration Risks
+Severity
+Low
+Likelihood
+Low
+Impact
+Low
+Description
+The RemoteHopV201Tempo.sendOFT function copies the caller-supplied final recipient into
+HopMessage and pulls principal without validating that recipient:
+HopMessage memory hopMessage = HopMessage({
+srcEid: $.localEid,
+dstEid: _dstEid,
+dstGas: _dstGas,
+sender: bytes32(uint256(uint160(msg.sender))),
+recipient: _recipient,
+data: _data
+});
+_amountLD = removeDust(_oft, _amountLD);
+if (_amountLD > 0) ITIP20(IOFT(_oft).token()).transferFrom(msg.sender,
+address(this), _amountLD);
+No hop or wrapper entry point rejects bytes32(0) or a nonzero value whose low 160 bits decode
+to address(0). The outcome depends on the route:
+• A same-chain local send reaches _sendLocal and reverts atomically.
+• An empty-data remote route eventually uses the final recipient as an outer OFT
+SendParam.to, exposing the transport-layer failure described separately.
+• A data-bearing route addresses the OFT message to a valid hop and keeps the final
+recipient inside HopMessage. Destination credit succeeds, but later lzCompose retries all
+revert when _sendLocal decodes the nested recipient to zero.
+An outer OFT recipient check cannot detect the composed case because the OFT sees only the
+valid hop address.
+Zellic © 2026
+←Back to Contents
+Page 27 of 505
+
+frxUSD Ecosystem Smart Contract Security Assessment
+October 19, 2026
+Impact
+The initiating caller can commit its principal to an unusable remote intent. On a composed route,
+principal remains credited to the destination hop while the immutable nested recipient causes
+every compose retry to fail; recovery or compensation then requires administrator action.
+The caller chooses the recipient and funds the transfer. No path was found to alter another user's
+recipient or debit a passive holder.
+Recommendations
+Validate the final recipient consistently in hop and wrapper quote/send paths, before any token
+pull or fee collection. Reject bytes32(0) universally, and reject low-160-bit-zero values when the
+final destination is EVM.
+Also validate before _sendLocal as defense in depth. Messages already in flight need a
+claim-directed cancellation or refund path because OFT _credit validation cannot inspect a
+[...excerpt ends]"
