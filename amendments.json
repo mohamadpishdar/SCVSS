@@ -9,5 +9,18 @@
     "sha256": "f42578a88cafb3f0c237d3b270d5cec02bc58a94e95777182a067278285ba032",
     "timestamp": "2026-11-25T16:55:34+01:00",
     "note": "adds seed; supersedes entry 1"
+  },
+  {
+    "file": "work/rule2/amendment_01_control_expansion.md",
+    "sha256": "f42578a88cafb3f0c237d3b270d5cec02bc58a94e95777182a067278285ba032",
+    "timestamp": "2026-11-25T17:21:00+01:00",
+    "note": "external registration; no file change",
+    "registration": "https://github.com/mohamadpishdar/SCVSS/commit/76978664368573ca0bcfd5684d300788e8962693"
+  },
+  {
+    "file": "work/rule2/amendment_01a_clarifications.md",
+    "sha256": "abdb11152bc37fb6361f067db6986c2ccf0ccbefd788d38e8101edeb6b33d641",
+    "timestamp": "2026-11-25T17:35:26+01:00",
+    "note": "Amendment 01a: clarifications to Amendment 01 (eligibility, Spearbit, cap scope)"
   }
 ]
