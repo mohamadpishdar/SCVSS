@@ -17,3 +17,9 @@ Amendment 01a: clarifications to Amendment 01 (control-B), decided 2026-11-25 be
 4. Analysis. The pooled contamination test (main vs original control + control-B, Medium/Low findings, firms present in both groups) models project as a random effect, or uses standard errors clustered by project, and keeps firm as a covariate.
 
 5. Firm shares. Each firm contributes at most its target share of 40 (rounded as in the table); firms below target contribute all drawable findings; no reallocation of the shortfall (Spearbit's share was reallocated when the targets of 40 were computed, as in item 2 above; shortfalls of firms below target are not reallocated). Expected size 23 (QuillAudits 7, Sherlock 4, Zellic 4, Trail of Bits 2, Nethermind 3, Cyfrin 3). Decided from candidate counts only, before any draw.
+
+## 01c (2026-11-25): handling of prior-report overlap, decided from controlB_prior_overlap.csv before redaction and before any Rule 2 or contamination result was viewed
+1. Findings judged "same issue" as a finding in an earlier corpus report of the same project (CB-250) are excluded from the primary contamination test and reported separately.
+2. Findings judged "related" (CB-038, CB-101, CB-222, CB-227, CB-252) stay in the primary test; a sensitivity analysis repeats the test without them.
+3. No other control-B finding is excluded on content grounds; CB-233 is kept under the frozen extraction rule and noted in the report.
+4. The primary contamination test therefore uses 22 control-B findings.
