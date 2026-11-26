@@ -267,5 +267,71 @@
     ],
     "timestamp": "2026-11-25T21:36:36+01:00",
     "note": "public OpenRouter endpoint and provider listing (no key) used to pin providers, Amendment 02 item 2"
+  },
+  {
+    "file": "(external registration: GitHub commits)",
+    "commits": [
+      {
+        "url": "https://github.com/mohamadpishdar/SCVSS/commit/f365834",
+        "sha": "f36583464fae25bbc9179c184cb83996aff72728",
+        "time": "2026-11-25T21:45:57+01:00",
+        "content": "Amendment 02, openrouter_raters.py, OpenRouter listings, amendments.json with 29 entries",
+        "verified": "LF-normalised SHA-256 of amendment_02 (b6a68122...), openrouter_raters.py (7ec618ff...), the three listings and amendments.json equal the local files / entries 27-29"
+      },
+      {
+        "url": "https://github.com/mohamadpishdar/SCVSS/commit/6197f50",
+        "sha": "6197f50368100667247327ea88adafd809d48f23",
+        "time": "2026-11-25T21:50:21+01:00",
+        "content": "amendment_01a_clarifications.md with 01g (sha256 936b514f...)",
+        "verified": "LF-normalised SHA-256 936b514f... equals entry 25"
+      }
+    ],
+    "timestamp": "2026-11-25T21:52:19+01:00",
+    "note": "external timestamps for Amendment 02 and 01g, before any OpenRouter call"
+  },
+  {
+    "file": "(R3/R4 OpenRouter run outputs)",
+    "files": [
+      {
+        "file": "work/rule2/answers_R3_openrouter.jsonl",
+        "sha256": "1715f761dc52d8343e3ac8f8719745b47a0e92138c5d3db7a57ebcca66c729a9",
+        "lf_sha256": "6ca676c4afc66e6a24236094abec8c53cbaf06c11e3b46a1360fe8053d68b0cf",
+        "bytes": 1613276
+      },
+      {
+        "file": "work/rule2/answers_R4_openrouter.jsonl",
+        "sha256": "63b63ffb41ee60955d62e5ae6885553e5a0760150a8713f7fce35db658fabeb9",
+        "lf_sha256": "3a76fccfb1b9b849bb20255e054511b68e860d08a73e919b4de2f9dcef979660",
+        "bytes": 1487285
+      },
+      {
+        "file": "work/rule2/openrouter_run.log",
+        "sha256": "57b66f289d8c538001d9a32790b2a10731a2e3d193faea014119b0c946833438",
+        "lf_sha256": "c58a319c2a54c8c32a2d036f80bdf5fc6c5bd3975a304fb82fcdbe0e2f0b72c7",
+        "bytes": 83288
+      },
+      {
+        "file": "work/rule2/openrouter_listing_2026-11-25_post/qwen_endpoints.json",
+        "sha256": "b7960e9312f99d22d744811dca144a58aef37c777838c85920c4e7345fcc39c9",
+        "lf_sha256": "b7960e9312f99d22d744811dca144a58aef37c777838c85920c4e7345fcc39c9",
+        "bytes": 5643
+      },
+      {
+        "file": "work/rule2/openrouter_listing_2026-11-25_post/deepseek_endpoints.json",
+        "sha256": "9f2d7cb317abb31b5b9cf3a1dd7e744809552fc26d0db5b3d6f6de4bcf1c2594",
+        "lf_sha256": "9f2d7cb317abb31b5b9cf3a1dd7e744809552fc26d0db5b3d6f6de4bcf1c2594",
+        "bytes": 2487
+      }
+    ],
+    "timestamp": "2026-11-26T00:50:39+01:00",
+    "note": "R3/R4 answers and logs, hashed before any analysis or viewing"
+  },
+  {
+    "file": "work/rule2/amendment_02a_missing_answers.md",
+    "sha256": "295a21b13dce97c0e3860784ede7ef5e700a0ff2754048bae6473789e5e02b8a",
+    "lf_sha256": "295a21b13dce97c0e3860784ede7ef5e700a0ff2754048bae6473789e5e02b8a",
+    "bytes": 2070,
+    "timestamp": "2026-11-26T08:13:15+01:00",
+    "note": "Amendment 02a: missing answers, before any analysis or viewing"
   }
 ]
